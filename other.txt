@@ -1,0 +1,141 @@
+AlphaAgent
+
+Sun Yat-sen University-led team
+31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining · August 2025
+
+Problem: LLMs can generate plausible alpha formulas, but they tend to reuse familiar structures, produce increasingly complicated expressions, and crowd into similar signals. That makes overfitting and alpha decay worse rather than better.
+
+Idea: Use three LLM agents. An Idea Agent proposes a market hypothesis; a Factor Agent turns the hypothesis into a symbolic alpha expression; an Eval Agent backtests the factor and feeds the result into the next iteration. Three explicit controls are applied during generation: AST-based similarity against existing factors, semantic checking that the formula actually matches the hypothesis, and limits on structural complexity.
+
+Novelty: AlphaAgent does not simply ask an LLM for more formulas. It treats originality, economic consistency and simplicity as constraints on the search. The objective is to generate factors that are less crowded and therefore less likely to decay quickly.
+
+Reported result: On CSI 500 and S&P 500 tests covering 2021–2024, the authors report annualised excess returns of 11.00% and 8.74%, respectively, with information ratios of 1.488 and 1.0545. The paper also reports materially slower IC decay than traditional and unconstrained LLM baselines.
+
+Reference: Ziyi Tang et al., “AlphaAgent: LLM-Driven Alpha Mining with Regularized Exploration to Counteract Alpha Decay,” KDD 2025, pp. 2813–2822. DOI: 10.1145/3711896.3736838.
+
+---
+
+Alpha Jungle
+
+Tsinghua University / Zhongguancun Institute of Artificial Intelligence
+AAAI Conference on Artificial Intelligence · March 2026
+
+Problem: The symbolic-alpha search space is enormous. Genetic programming and reinforcement-learning systems can waste large numbers of trials exploring weak or repetitive formulas. Direct LLM generation has a similar problem: asking for one better formula at a time gives the model little control over where the search is going.
+
+Idea: Represent alpha research as a tree. Each node is a complete symbolic alpha formula. An LLM generates the root and proposes refinements; every candidate is backtested; Monte Carlo Tree Search (MCTS) uses those results to decide which branches deserve more exploration. A frequent-subtree mechanism identifies formula structures that are appearing too often and tells the LLM to explore elsewhere.
+
+Novelty: The important change is that the system no longer follows one sequential chain of LLM revisions. It can maintain several competing alpha families and use actual backtest evidence to decide where the next research budget should go.
+
+Reported result: The authors report superior IC, RankIC and simulated trading performance against genetic-programming, reinforcement-learning and LLM baselines across Chinese and U.S. equity datasets. Their reported results reach roughly 12.5% annualised excess return and an information ratio around 1.29 in the headline comparison, versus about 10.1% / 1.02 for the strongest baseline in that setup.
+
+Reference: Yu Shi, Yitong Duan & Jian Li, “Navigating the Alpha Jungle: An LLM-Powered MCTS Framework for Formulaic Alpha Factor Mining,” Proceedings of AAAI 2026, Vol. 40(2), pp. 997–1005. DOI: 10.1609/aaai.v40i2.37069.
+
+---
+
+AlphaPROBE
+
+Peking University / Zhengren Quant / Baruch College
+arXiv preprint · February 2026
+
+Problem: Most iterative alpha systems remember only the current parent factor and its immediate child. As the factor library grows, the system loses sight of how an entire family of factors was created, causing repeated search and closely related formulas.
+
+Idea: Store the whole factor population as a Directed Acyclic Graph (DAG). Nodes are factors and edges record evolutionary modifications. A Bayesian Factor Retriever chooses promising parents while balancing exploitation of good factors against exploration of less-tested areas. A DAG-aware LLM generator then sees not only the selected factor but its full ancestry before proposing the next offspring.
+
+Novelty: Instead of asking only, “How should I improve this factor?”, AlphaPROBE can ask, in effect, “What has already been tried along this entire family line, and what genuinely new direction remains?” The research history becomes part of the generation context.
+
+Reported result: Across CSI 300, CSI 500 and CSI 1000, the authors report higher predictive accuracy and portfolio performance than eight baselines. On CSI 500, for example, AlphaPROBE reports 17.45% annualised return and Sharpe 0.8262, versus 12.36% / 0.5165 for R&D-Agent(Q) in the same table. On CSI 300 it reports IC 5.84%, RankIC 7.20% and annualised return 7.50%.
+
+Reference: Taian Guo et al., “AlphaPROBE: Alpha Mining via Principled Retrieval and On-graph Biased Evolution,” arXiv:2602.11917, 2026.
+
+---
+
+QuantaAlpha
+
+AIFin Lab / QuantaAlpha-led multi-institution collaboration
+arXiv preprint · February 2026
+
+Problem: Multi-round LLM alpha research is easily misled by noisy backtests. A weak result can cause the next iteration to abandon parts of the research that were actually useful, while successful pieces of earlier work are often lost when the system starts another round.
+
+Idea: Treat a complete run—
+
+hypothesis → factor expression → implementation → backtest feedback
+
+—as a research trajectory. QuantaAlpha identifies weak steps and mutates only those parts; it can also combine useful sections from different successful trajectories. During factor generation it checks consistency between the hypothesis, symbolic expression and executable code, while controlling complexity and redundancy.
+
+Novelty: The reusable object is no longer just the final alpha. QuantaAlpha can preserve a good hypothesis or implementation choice even when the complete factor failed, and can recombine useful pieces of different research paths.
+
+Reported result: Using GPT-5.2, the authors report IC 0.1501, annualised return 27.75% and maximum drawdown 7.98% on CSI 300. Factors mined on CSI 300 were then transferred to CSI 500 and S&P 500, where the paper reports cumulative four-year excess returns of 160% and 137%, respectively. These are paper-reported backtest results rather than independently replicated trading results.
+
+Reference: Jun Han et al., “QuantaAlpha: An Evolutionary Framework for LLM-Driven Alpha Mining,” arXiv:2602.07085, 2026.
+
+---
+
+FactorMiner
+
+Tsinghua University / Peng Cheng Laboratory
+ICLR 2026
+
+Problem: Once a factor library becomes large, finding another individually good factor is not enough. New candidates increasingly collide with factors already in the library. The authors call this the “Correlation Red Sea”: the remaining space for useful, sufficiently different factors keeps shrinking.
+
+Idea: Give the LLM two forms of accumulated knowledge. Skills encode reusable procedures for evaluating and constructing factors. Experience Memory records what happened in previous searches—including successful patterns, failed directions and rejection constraints. Each cycle retrieves relevant experience, generates candidates, evaluates them deterministically and distils the new result back into memory.
+
+Novelty: Failure becomes useful research data. Instead of repeatedly rediscovering that a certain structure is redundant or ineffective, FactorMiner can explicitly remember where previous searches hit dead ends and steer subsequent generation away from them.
+
+Reported result: The paper tests 10-minute intraday factors across CSI 500, CSI 1000, HS300 and crypto. On CSI 500, its Top-40 factor library reports IC 8.25% and ICIR 0.77, versus 5.90% / 0.46 for AlphaAgent. FactorMiner reports the highest IC and ICIR among the compared methods across all four tested markets.
+
+Reference: Yanlong Wang, Jian Xu, Hongkang Zhang, Shao-Lun Huang, Danny Dongning Sun & Xiao-Ping Zhang, “FactorMiner: A Self-Evolving Agent with Skills and Experience Memory for Financial Alpha Discovery,” ICLR 2026.
+
+---
+
+AlphaLogics
+
+Shenzhen University-led collaboration
+arXiv preprint · March 2026
+
+Problem: Most auto-alpha systems optimise factors directly. Even when the resulting formulas perform well, the market reasoning behind them remains implicit. That makes it difficult to reuse an economic insight across several different factors or to learn whether the underlying hypothesis itself was right or wrong.
+
+Idea: Maintain a separate Market Logic Library. AlphaLogics first reverse-engineers market logic from existing factors. Those logics are then used to generate new factors. Backtests evaluate the resulting factors, and the evidence from several factors associated with the same logic is aggregated to update that underlying market logic.
+
+Novelty: The object being improved is no longer only the formula. The system can learn something like:
+
+«“This market mechanism appears useful under these conditions”»
+
+even if several individual expressions implementing that idea are mediocre. In other words, factor results are used to improve the research hypothesis itself.
+
+Reported result: On CSI 500, the authors report 16.72% annualised excess return and information ratio 1.5266, compared with 12.46% / 1.2230 for AlphaAgent. On S&P 500 they report 13.75% annualised excess return and IR 1.2658, again ahead of the tested baselines. The authors also report that repeated rounds of logic refinement progressively improve subsequent factor generation.
+
+Reference: Zhangyuhua Weng, Shengli Zhang, Taotao Wang & Yihan Xia, “AlphaLogics: A Market Logic-Driven Multi-Agent System for Scalable and Interpretable Alpha Factor Generation,” arXiv:2603.20247, 2026.
+
+---
+
+R&D-Agent(Q)
+
+Microsoft Research Asia-led team
+NeurIPS 2025 — Datasets and Benchmarks Track
+
+Problem: Automated factor-mining systems usually automate only one piece of quantitative research. A real research project also requires deciding what to investigate, translating the idea into code, running an experiment, understanding the result and deciding what to try next.
+
+Idea: Split automated research into two repeating stages. The Research Agent uses domain priors and previous experimental results to form hypotheses and turn them into concrete research tasks. The Development Agent, based on Microsoft's Co-STEER code-generation system, implements those tasks as executable code. Real-market backtests produce feedback, which is returned to the Research Agent. A multi-armed-bandit scheduler allocates subsequent research effort among competing directions.
+
+Novelty: R&D-Agent(Q) moves the automation target from “generate a factor” to “run a quantitative R&D process.” It also searches both factors and predictive models rather than restricting the system to symbolic formulas.
+
+Reported result: The authors report up to 2× higher annualised returns than classical factor libraries while using 70% fewer factors, and performance above state-of-the-art deep time-series models on their real-market benchmarks. Joint factor–model optimisation performs better than optimising either side independently.
+
+Reference: Yuante Li, Xu Yang, Xiao Yang, Minrui Xu, Xisen Wang, Weiqing Liu & Jiang Bian, “R&D-Agent-Quant: A Multi-Agent Framework for Data-Centric Factors and Model Joint Optimization,” NeurIPS 2025, Datasets and Benchmarks Track. DOI: 10.52202/085713-3967.
+
+---
+
+FactorEngine
+
+Multi-institution research team
+arXiv preprint · March 2026
+
+Problem: Formulaic factors are interpretable and auditable, but a fixed mathematical DSL limits what they can express. Neural models have much greater expressive power but are harder to understand and audit. The authors therefore ask whether an automated system can search a richer space without giving up executable, inspectable factors.
+
+Idea: Represent the factor as a Turing-complete program rather than a short mathematical formula. LLMs handle high-level changes to the factor logic; Bayesian optimisation handles numerical parameters such as windows and thresholds; ordinary local code performs computations that do not need an LLM. A separate bootstrapping pipeline reads financial reports, extracts an economic idea, verifies it and converts it into executable factor code. Previous successful and failed trajectories are retained in an experience knowledge base.
+
+Novelty: FactorEngine separates what the factor does from what parameter values it uses. The expensive reasoning model is used to change the logic; cheap numerical optimisation tunes the parameters. More importantly, the persistent alpha object is now an executable program, allowing conditions, control flow and richer computations that cannot easily fit into a conventional formula DSL.
+
+Reported result: The authors report state-of-the-art predictive and portfolio performance against symbolic and agentic baselines. In their CSI 300 experiments, the financial-report-bootstrapped version reports IC 0.0474 and annual excess return of 18.99%. The paper also reports a 57.1% factor keep-rate, compared with 3.9% for R&D-Agent(Q) in its diversity/filtering experiment, suggesting that substantially more generated factors survive quality and redundancy filtering.
+
+Reference: Qinhong Lin et al., “FactorEngine: A Program-level Knowledge-Infused Factor Mining Framework for Quantitative Investment,” arXiv:2603.16365, 2026.
