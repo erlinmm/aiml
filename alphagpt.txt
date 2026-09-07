@@ -1,13 +1,13 @@
-Alpha-GPT
-Hong Kong University of Science and Technology / IDEA Research-led team
-First released 2023 · EMNLP 2025 System Demonstrations
-
-Problem: Manual alpha research can start from good market intuition but translating an idea into a precise executable formula is slow and highly dependent on researcher experience. Earlier automated methods such as genetic programming can search large formula spaces, but are computationally expensive and have difficulty incorporating a quant's high-level market hypothesis or learning from human interpretation of the results.
-
-Idea: Put an LLM between the researcher and the symbolic-alpha search engine. A researcher describes a trading idea in natural language; an LLM-based Quant Developer converts it into executable “seed” alpha expressions. An algorithmic search layer, including genetic programming, can then expand and improve those seeds. A backtest engine evaluates candidates using return, IC and Sharpe, and an Analyst agent summarises the results for the next research round. In autonomous mode, hierarchical RAG lets the LLM move from broad data categories to specific fields in databases containing more than 10,000 features before proposing a new idea and expression.
-
-Novelty: Alpha-GPT changes automated alpha mining from blind search over formulas into idea-guided search. The LLM can translate a market hypothesis into a symbolic expression, use literature and previous alphas as context, interpret the resulting backtests, and modify the next round of search. The LLM therefore does not replace the search or backtest engine; it provides the link between human-level reasoning and executable symbolic search.
-
-Reported result: The authors report that initial LLM-generated seed factors had an average IC of 0.58%; ten rounds of algorithmic search enhancement increased this to 1.23%, while one human-AI interaction followed by search enhancement reached 2.23%. In a separate high-frequency alpha competition benchmark, Alpha-GPT reached performance comparable with the top 5–10% of human participants in one day. Most notably, the system was run during the WorldQuant International Quant Championship 2024 and ranked among the worldwide top 10, in a competition involving more than 41,000 participants; the paper reports 81 qualified alphas and a competitive out-of-sample score.
-
-Reference: Saizhuo Wang, Hang Yuan, Leon Zhou, Lionel M. Ni, Heung-Yeung Shum & Jian Guo, “Alpha-GPT: Human-AI Interactive Alpha Mining for Quantitative Investment,” Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing: System Demonstrations, pp. 196–206, 2025. DOI: 10.18653/v1/2025.emnlp-demos.14. Earlier version: arXiv:2308.00016.
+AutoAlpha: 2010–2019 daily data. CSI 800 test: IC 7.5% (1-day), 5.5% (5-day). RankIC not reported.
+AlphaGen: 2009–2021 daily data. CSI 300: IC 7.3%, RankIC 8.1%. CSI 500: IC 4.4%, RankIC 7.3%.
+AlphaForge: 2010–2022 daily data. CSI 300: IC 4.4%, RankIC 5.9%. CSI 500: IC 2.8%, RankIC 5.6%.
+Alpha-GPT: intraday data, exact dates/bar interval not disclosed. IC 0.6% initial → 1.2% after search → 2.2% after human interaction + search. RankIC not reported.
+FAMA: 2015–2022 daily data. S&P 500: RankIC 5.4%. IC not reported.
+AlphaAgent: 2015–2024 daily data. CSI 500: IC 2.1%. S&P 500: IC 0.6%. Aggregate RankIC not reported.
+Alpha Jungle: 2021–2024 daily data. CSI 300 / CSI 1000, 10- and 30-day targets: IC 5.5%, RankIC 5.1% for the headline LightGBM configuration. Results are not separately reported by universe in that table.
+AlphaPROBE: 2010–2025 daily data. CSI 300: IC 5.8%, RankIC 7.2%. CSI 500: IC 6.3%, RankIC 8.8%. CSI 1000: IC 9.0%, RankIC 11.4%.
+QuantaAlpha: daily data. CSI 300: IC 4.7%, RankIC 4.6% using the current corrected GPT-5.2 results.
+FactorMiner: 2024–2025 10-minute data. CSI 500: RankIC 8.3%. CSI 1000: 7.8%. HS300: 7.5%. Crypto: 3.8%. Paper calls this metric “IC” but defines it using Spearman correlation.
+AlphaLogics: 2015–2024 daily data. CSI 500: RankIC 2.5%. S&P 500: RankIC 0.9%. Paper calls this “IC” but defines it as Spearman correlation.
+R&D-Agent(Q): 2008–2020 daily data. CSI 300: IC 5.3%, RankIC 5.0%.
+FactorEngine: 2008–2024 daily data. CSI 300: IC 4.7%, RankIC 4.8%. CSI 500: IC 5.4%, RankIC 4.9%.
