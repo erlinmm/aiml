@@ -1,1468 +1,1658 @@
-# Phase 1 Development Instruction
-## Migrate the Existing Chatbox to a Python Backend
+## Persistent Runs, Dialogue Workspaces, File Versioning, and Autosave
 
 ### 1. Objective
 
-Migrate the existing HTML/JavaScript Chatbox to a Python backend.
+Extend the completed Phase 1 Chatbox into a persistent task and file workspace.
 
-The Python backend must become the single source of truth for:
+Phase 1 is already implemented and working. Use its existing codebase as the starting point.
 
-- LLM model connection configuration.
-- LLM request construction and execution.
-- Conversation and dialogue history.
-- Per-dialogue model selection and generation parameters.
-- System prompts.
-- Undo, Redo, and regeneration state.
-- LLM streaming and cancellation.
-- Prompt inspection.
-- Persistent application records.
+Phase 2 must add five capabilities:
 
-The frontend must send user actions to the backend and render the resulting state.
+1. **Workspace Setup:** Configure and change the Workspace Root from the frontend.
+2. **Persistent Runs:** Continue LLM generation after the browser disconnects. Reconnect to the original Run without repeating it.
+3. **Dialogue Workspaces:** Give each Dialogue its own persistent directory containing real files.
+4. **Files Workspace:** Preview, download, compare, and restore generated file versions.
+5. **Autosave:** Automatically preserve unsent input, dialogue settings, streaming output, and file drafts.
 
-**Use local files and directories for persistent storage. Do not use a database.**
+The backend must operate as a **single-instance application**, with operating-system-level locks protecting the backend instance and active Workspace.
 
-The deliverable must be the existing Chatbox running with the new Python backend, while preserving all existing working functionality.
+Use the existing Python backend and local filesystem.
 
-This is Phase 1 of a longer project that will eventually develop into an Agentic Alpha Research System.
+Start Phase 2 with a new, empty Workspace. No Phase 1 conversation history, files, or other records need to be migrated.
 
-Do not implement future Agent or Alpha Research functionality in this phase.
+**The deliverable must be a working application with all Phase 1 features preserved.**
+
+Do not implement Agent orchestration, Skills, Java integration, or Alpha Research functionality in Phase 2.
 
 ---
 
-### 2. Development Principles
+## 2. Development Principles
 
 Follow these rules:
 
-1. Study the existing application before modifying it.
-2. Preserve the existing frontend appearance and behaviour.
-3. Reuse existing code wherever practical.
-4. Make the smallest changes that meet the requirements.
-5. Use clear, straightforward Python and JavaScript.
-6. Avoid unnecessary abstraction and framework complexity.
-7. Do not rewrite the frontend.
-8. Do not introduce Docker, WSL, or a database.
-9. Do not introduce additional services unless necessary.
-10. Keep the application functional after the migration.
-11. Use clear English in user-facing text. Prefer short, direct ASD-STE100-style sentences.
-12. Do not introduce promotional text, unnecessary animations, or diagnostic displays.
-13. Investigate the code, logs, and configuration before asking the user questions.
-14. Do not remove an existing feature to simplify implementation.
+1. Inspect the actual Phase 1 implementation before making changes.
+2. Preserve existing functionality and frontend behaviour.
+3. Reuse existing code, APIs, and storage conventions where practical.
+4. Keep the code simple and readable.
+5. Avoid unnecessary frameworks, abstractions, and dependencies.
+6. Do not introduce microservices or distributed execution.
+7. Use native Windows execution.
+8. Use human-readable files for persistent records.
+9. Do not simulate LLM output, file generation, or task progress.
+10. Do not remove working features to simplify implementation.
+11. Use clear, concise English in the interface. Prefer ASD-STE100-style wording.
+12. Keep authoritative application state in Python.
+13. Use deterministic code for state transitions, versioning, and recovery.
+14. Investigate source code and logs before requesting information from the user.
+15. Do not expand the scope into future phases.
 
-Use the existing project conventions when they satisfy these requirements.
+Do not stop after producing an implementation plan.
 
-The final code must be understandable and maintainable by another developer without extensive framework-specific knowledge.
-
-### 3. Development Environment
-
-The target environment is Windows.
-
-The user previously reported Python version `3.1.3`. Verify the actual installed version by executing:
-
-```powershell
-python --version
-```
-
-If the installed version is Python 3.13.x, use it.
-
-If it is literally Python 3.1.3, report the compatibility problem and the required Python upgrade. Do not silently assume the version is 3.13.
-
-Preferred technology:
-
-| Component | Technology |
-|---|---|
-| Frontend | Existing HTML, JavaScript, and CSS |
-| Python API | FastAPI |
-| LLM communication | Async OpenAI-compatible client |
-| Validation | Pydantic where useful |
-| Persistent storage | JSON, JSONL, and local directories |
-| Runtime | Native Windows and Python virtual environment |
-
-Do not require:
-
-- Docker
-- WSL
-- SQLite
-- PostgreSQL
-- Redis
-- Celery
-- A distributed task queue
-- A JavaScript frontend build system
-
-Do not replace existing libraries unless required.
+Proceed with implementation, testing, and delivery.
 
 ---
 
-### 4. First Task: Inspect the Existing Application
+## 3. Inspect the Existing Application
 
-Before implementation, examine the complete current application.
+Before implementation, inspect:
 
-Identify:
+- FastAPI application startup and shutdown.
+- Backend model configuration.
+- Existing LLM request execution.
+- Current streaming event protocol.
+- Current Run records and identifiers.
+- Existing cancellation mechanism.
+- Conversation persistence.
+- Dialogue creation, deletion, and renaming.
+- Per-dialogue model selection and generation settings.
+- Conversation Undo, Redo, and regeneration.
+- Existing generated-file parsing.
+- File preview and download behaviour.
+- Current autosave functionality.
+- Existing filesystem layout.
+- Frontend navigation and styling.
+- Automated tests.
+- Windows startup procedure.
 
-1. HTML, JavaScript, and CSS entry points.
-2. Existing dialogue list and management.
-3. Existing frontend Model Config section.
-4. Current LLM API calls.
-5. Current model connection settings.
-6. Per-dialogue model selection.
-7. Per-dialogue generation parameters.
-8. Supported reasoning effort controls.
-9. System prompt editing.
-10. Conversation history storage and autosave.
-11. Undo, Redo, regeneration, and branching behaviour.
-12. Streaming text and reasoning rendering.
-13. Generated-code and generated-file handling.
-14. Prompt inspection.
-15. Stop and cancellation.
-16. Any existing command or Agent-related features.
-17. Existing localStorage, IndexedDB, or file-based persistence.
-18. Existing tests and running instructions.
+Identify what currently happens when:
 
-Study actual implementation details rather than assuming the application follows the examples in this instruction.
+1. The browser closes during LLM generation.
+2. The streaming connection is interrupted.
+3. Python terminates unexpectedly.
+4. The same user request is submitted twice.
+5. A response contains several generated files.
+6. A user edits an existing generated file.
+7. Generation ends with incomplete file content.
 
-Before changing code, document:
-
-- The current request path.
-- Current state ownership.
-- Existing persistence formats.
-- Which functions will move to Python.
-- Which frontend functions will remain.
-- Any compatibility risks.
+Document the findings briefly.
 
 Prepare a concise implementation plan.
 
-Then proceed with implementation.
+Do not rewrite Phase 1 unnecessarily.
 
-Do not stop after producing the plan.
+**Do not investigate or implement migration of Phase 1 historical records.**
 
 ---
 
-### 5. Target Architecture
+# PART A — SINGLE BACKEND INSTANCE
+
+## 4. Single-Instance Runtime
+
+Silico must operate as a single-backend-instance application.
+
+Only one backend instance may run for the same application installation and supported Windows user environment.
+
+Multiple browser clients may connect to that backend.
+
+Multiple Dialogues may exist.
+
+Multiple LLM Runs may be managed by the backend, subject to configured concurrency limits.
+
+Do not implement coordination between independent backend processes.
+
+Use one FastAPI application worker.
+
+Do not configure multiple Uvicorn workers.
+
+Do not use an automatic-reload configuration that creates competing application instances.
+
+### 4.1 Backend Instance Identity
+
+Generate a stable Instance ID during initial setup.
+
+Store it outside the Workspace Root.
+
+Suggested location:
 
 ```text
-                  HTML / JavaScript
-                       Frontend
-                          |
-                          | User Actions
-                          | State Requests
-                          |
-                          v
-                Python Backend
-                    FastAPI
-                          |
-       +------------------+------------------+
-       |                  |                  |
-       v                  v                  v
- Conversation       LLM Runtime        Model Config
-   Manager                                Manager
-       |                  |                  |
-       |                  |                  |
-       v                  |                  v
-   File-Based             |            Backend-only
-    Storage               |            Configuration
-                          |
-                          v
-                OpenAI-Compatible
-                   LLM Endpoints
-                          |
-                   +------+------+
-                   |             |
-                 Thinker        Coder
+%LOCALAPPDATA%\Silico\
+    instance-config.json
+    backend.lock
 ```
 
-The Python backend is responsible for all LLM provider communication.
+Example:
 
-The frontend must not call an LLM endpoint directly.
+```json
+{
+  "schema_version": 1,
+  "instance_id": "stable-generated-instance-id",
+  "workspace_root": "D:\\Silico\\Workspace"
+}
+```
 
-The frontend must not contain API keys or other LLM credentials.
+Use existing configuration conventions when practical.
 
-The frontend must not construct the final provider request.
+The Bootstrap Configuration must not depend on the Workspace Root being available.
 
-The frontend must not maintain an independent authoritative conversation history.
+### 4.2 Instance Lock
 
-The frontend can cache backend state for display and can hold temporary UI state.
+Acquire an exclusive operating-system-level lock during backend startup.
 
-Keep the Python backend as one application.
+Hold the lock for the entire backend process lifetime.
 
-A separate service for conversation management, model configuration, or streaming is not necessary in Phase 1.
+If another backend already holds the lock:
+
+- Do not load or modify application state.
+- Do not start another Run Manager.
+- Report a clear error.
+- Exit safely.
+
+Use a Windows-compatible OS file-locking mechanism, such as `portalocker`.
+
+Do not rely only on file existence, PID records, or timestamps.
+
+The operating system must release the lock when the owning process terminates unexpectedly.
+
+A stale lock file without an active OS lock must not prevent startup.
+
+### 4.3 Lock Lifecycle
+
+Acquire the instance lock before opening persistent application state.
+
+Release it during normal shutdown.
+
+Keep the lock handle alive for the required lifetime.
+
+Use FastAPI lifespan management or a similarly clear lifecycle mechanism.
+
+Avoid locking during module import if that would make testing or development tools unreliable.
 
 ---
 
-## 6. Model Configuration
+# PART B — WORKSPACE ROOT
 
-### 6.1 Remove the Entire Frontend Model Config Section
+## 5. Workspace Root Configuration
 
-The current frontend contains a collapsible section labelled:
+Silico must use one active Workspace Root at a time.
 
-`MODEL CONFIG`
+The user must be able to configure and change this Root through the frontend.
 
-It allows the user to configure:
+The Workspace Root is a directory on the computer running the Python backend.
 
-- Model label.
-- Base URL.
-- API key.
-- Model ID.
-- Supported reasoning effort levels.
-- Configuration reset.
+Users must not need to select a directory for each Dialogue.
 
-**Remove this entire section from the frontend.**
+### 5.1 Initial Setup
 
-Remove its related UI controls, event handlers, and browser-side credential persistence.
-
-Do not replace it with another model configuration page.
-
-Model endpoint configuration must be maintained exclusively in the Python backend.
-
-### 6.2 Backend Model Configuration
-
-Support multiple named model profiles.
-
-At minimum, retain:
-
-- `thinker`
-- `coder`
-
-The backend must support different OpenAI-compatible endpoints for these profiles.
-
-Use a backend-only configuration file.
-
-Suggested example:
-
-```yaml
-models:
-  thinker:
-    label: "Thinker"
-    base_url: "http://127.0.0.1:8001/v1"
-    api_key_env: "THINKER_API_KEY"
-    model_id: "thinker"
-    reasoning_efforts:
-      - none
-      - minimal
-      - low
-      - medium
-      - high
-      - xhigh
-      - max
-      - auto
-
-  coder:
-    label: "Coder"
-    base_url: "http://127.0.0.1:8002/v1"
-    api_key_env: "CODER_API_KEY"
-    model_id: "coder"
-    reasoning_efforts:
-      - low
-      - high
-      - max
-      - auto
-```
-
-The values above are examples only.
-
-Inspect and preserve the actual model configuration and capabilities.
-
-Do not assume both models support all reasoning values.
-
-API keys must be read from backend-only environment variables or protected configuration.
-
-Do not commit real credentials to Git.
-
-Do not expose the model connection configuration in frontend HTML or JavaScript.
-
-### 6.3 Model Capability Metadata
-
-Provide a read-only API for safe model metadata.
+On frontend startup, query the backend Workspace configuration.
 
 Suggested endpoint:
 
-`GET /api/model-profiles`
+`GET /api/workspace/config`
 
 Example response:
 
 ```json
 {
-  "models": [
-    {
-      "id": "thinker",
-      "label": "Thinker",
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max"
-      ],
-      "default_reasoning_effort": "high"
-    },
-    {
-      "id": "coder",
-      "label": "Coder",
-      "reasoning_efforts": [
-        "low",
-        "high",
-        "max",
-        "auto"
-      ],
-      "default_reasoning_effort": "auto"
-    }
-  ]
+  "configured": false,
+  "instance_id": "instance-id",
+  "workspace_root": null
 }
 ```
 
-Also expose safe parameter defaults and supported ranges when required by the existing frontend.
+If no valid Root is configured:
 
-Do not expose:
+1. Display a Workspace Setup screen.
+2. Explain what the Workspace stores.
+3. Ask the user to enter the Workspace Root path.
+4. Offer to create the directory if it does not exist.
+5. Send the configuration to Python.
+6. Validate and initialize the Workspace.
+7. Open the normal Chatbox after setup succeeds.
 
-- API keys.
-- Authentication headers.
-- Backend credentials.
-- Private configuration file paths.
+Keep health and Workspace Setup APIs available before initialization.
 
-Do not expose raw provider Base URLs unless an existing frontend function genuinely requires them and doing so is safe.
+Do not enable persistent Dialogue or Run operations until a valid Workspace is active.
 
-### 6.4 LLM Provider Compatibility
+Do not silently select a temporary Workspace.
 
-Inspect how the current frontend sends requests to the configured models.
+If the previously configured Root is unavailable, show an error instead of automatically creating a replacement.
 
-Preserve the existing request formats and provider-specific behaviour.
+### 5.2 Frontend Setup UI
 
-In particular, investigate:
+Use the existing frontend design.
 
-- Reasoning effort parameters.
-- Reasoning content fields.
-- Maximum completion token parameters.
-- Temperature.
-- Top P.
-- Top K.
-- Min P.
-- Repetition penalty.
-- Presence penalty.
-- Streaming response formats.
+Suggested wording:
 
-Some OpenAI-compatible servers support additional or non-standard fields.
+**Set up your workspace**
 
-Preserve the behaviour that works with the current models.
+"Select a folder on the computer that runs the Silico backend. Silico will store conversations, generated files, and task records in this folder."
 
-Do not silently remove unsupported or non-standard parameters.
+Provide:
 
-If an invalid combination is selected, use a clear validation error.
+- Workspace Root path input.
+- Path validation feedback.
+- Create Workspace action.
+- Open Existing Workspace action.
 
-Do not assume all endpoints expose the same capabilities.
+A browser's normal folder picker selects a directory on the browser's computer, which may not be the backend computer.
+
+Do not assume the browser and backend run on the same machine.
+
+A path input field is sufficient for Phase 2.
+
+Do not build an elaborate server-side filesystem browser.
+
+### 5.3 Root Validation
+
+Validate:
+
+- Absolute path.
+- Directory existence.
+- Write permissions.
+- Existing Workspace metadata.
+- Workspace schema compatibility.
+- Lock availability.
+- Invalid or unsafe filesystem locations.
+
+Do not overwrite unrelated files.
+
+If a compatible Workspace already exists, open it.
+
+If an empty directory is selected, allow explicit initialization.
+
+If a directory contains unrelated files, do not automatically treat it as an empty Workspace.
+
+### 5.4 Workspace Identity
+
+Each Workspace Root must have a stable Workspace ID.
+
+Store it in `workspace.json`.
+
+Example:
+
+```json
+{
+  "schema_version": 1,
+  "workspace_id": "stable-workspace-id",
+  "created_at": "2026-11-22T12:00:00Z"
+}
+```
+
+The Workspace ID and Backend Instance ID are different identifiers.
+
+Do not regenerate a Workspace ID when reopening it.
 
 ---
 
-## 7. Per-Dialogue Model Selection and Parameters
+## 6. Workspace Lock
 
-**This section is a critical requirement.**
+Every Workspace Root must have an OS-level lock file.
 
-The frontend currently allows each dialogue to select its own model and generation parameters.
+Suggested name:
 
-Preserve these controls and their behaviour.
+`.workspace.lock`
 
-### 7.1 Model Selection
+Acquire an exclusive operating-system-level lock before normal Workspace operations.
 
-Keep the existing Thinker/Coder selector.
+Hold the lock while the Workspace is active.
 
-Each dialogue must retain its selected model.
+If the lock cannot be acquired:
 
-For example:
+- Do not modify Workspace data.
+- Report that the Workspace is in use.
+- Allow the user to select another directory.
+
+Do not rely on the lock file's existence.
+
+Do not automatically delete a lock file because its stored PID appears inactive.
+
+Do not force-unlock a Workspace held by another live process.
+
+Support local filesystem locking.
+
+Do not claim arbitrary network filesystem compatibility without verification.
+
+### 6.1 Purpose of the Two Locks
+
+The Instance Lock prevents two Silico backend processes from running for the same installation.
+
+The Workspace Lock prevents another process from concurrently writing into the active Workspace.
+
+Keep both mechanisms.
+
+Do not introduce a distributed lock service.
+
+---
+
+## 7. Workspace Settings and Switching
+
+Add a **Workspace Settings** view to the frontend.
+
+This is separate from the model connection configuration removed in Phase 1.
+
+Do not reintroduce the Model Config tab.
+
+Display:
+
+- Backend Instance ID.
+- Workspace ID.
+- Current Workspace Root.
+- Workspace accessibility and write status.
+- Number of queued and active Runs.
+- Change Workspace action.
+
+Support:
+
+1. Create a new Workspace.
+2. Open an existing compatible Workspace.
+
+Do not automatically copy or migrate data from one Workspace to another.
+
+### 7.1 Safe Switching
+
+A Workspace switch must:
+
+1. Prevent new Run creation and conflicting state mutations during the transition.
+2. Check that no Runs are queued or active.
+3. Reject the operation if queued or active Runs exist.
+4. Validate the target directory.
+5. Acquire the target Workspace Lock.
+6. Validate target metadata and storage.
+7. Prepare the target Workspace.
+8. Atomically update the Bootstrap Configuration.
+9. Activate the target Workspace.
+10. Release the previous Workspace Lock.
+11. Refresh frontend state.
+
+If switching fails, preserve the previous Workspace.
+
+Do not release the previous Workspace Lock before the replacement is ready.
+
+Handle failures and process termination during switching.
+
+On restart, open the Root specified by the durable Bootstrap Configuration.
+
+### 7.2 Stale Browser Requests
+
+A browser may still display the previous Workspace after another browser switches Roots.
+
+Use Workspace identity and revision checks where needed.
+
+Reject stale state-changing requests.
+
+Do not allow a delayed request to modify an unintended Workspace.
+
+### 7.3 Administrative Access
+
+Changing Workspace Root is an administrative operation.
+
+Default to a backend bound to the local machine.
+
+If remote browser access is supported, protect Workspace configuration APIs with appropriate authentication and authorization.
+
+Do not permit arbitrary unauthenticated remote users to select server filesystem paths.
+
+---
+
+# PART C — DIALOGUE WORKSPACES
+
+## 8. One Workspace per Dialogue
+
+Each Dialogue must have its own persistent subdirectory.
+
+Create it automatically.
+
+Use the stable Dialogue ID as the directory identifier.
+
+Do not use the Dialogue title as a directory name.
+
+A Dialogue Workspace belongs to the Dialogue, not to a browser session.
+
+Closing or refreshing the browser must not create another Workspace.
+
+Reopening a Dialogue must restore its original Workspace.
+
+### 8.1 Recommended Directory Layout
 
 ```text
-Dialogue A
-    Model: Thinker
-
-Dialogue B
-    Model: Coder
-
-Dialogue C
-    Model: Thinker
+WorkspaceRoot/
+│
+├── workspace.json
+├── .workspace.lock
+│
+├── dialogues/
+│   ├── dlg_001/
+│   │   ├── dialogue.json
+│   │   ├── workspace.json
+│   │   ├── input_draft.json
+│   │   └── workspace/
+│   │       ├── alpha.py
+│   │       └── analysis.md
+│   │
+│   └── dlg_002/
+│       ├── dialogue.json
+│       ├── workspace.json
+│       ├── input_draft.json
+│       └── workspace/
+│
+├── runs/
+│   ├── run_001/
+│   │   ├── run.json
+│   │   ├── request.json
+│   │   ├── events.jsonl
+│   │   └── drafts/
+│   └── run_002/
+│
+└── artifacts/
+    └── artifact_001/
+        ├── manifest.json
+        └── versions/
+            ├── v001/
+            └── v002/
 ```
 
-Switching dialogue must restore the correct selection.
+This layout is a suggestion.
 
-Changing the selected model in one dialogue must not change other dialogues.
+Adapt it to existing code conventions.
 
-The backend must save the model selection.
+No Phase 1 historical data needs to be migrated into it.
 
-### 7.2 Generation Parameters
+### 8.2 Real Working Files
 
-Preserve every existing per-dialogue generation setting.
+Each Dialogue's `workspace/` directory must contain actual files.
 
-The currently known settings include:
+These files must be accessible using Windows Explorer and ordinary text editors.
 
-| Setting | Requirement |
-|---|---|
-| Temperature | Preserve |
-| Max Tokens | Preserve |
-| Top P | Preserve |
-| Top K | Preserve |
-| Min P | Preserve |
-| Repetition Penalty | Preserve |
-| Presence Penalty | Preserve |
-| Reasoning Effort | Preserve |
+They are the current working copies, not immutable historical versions.
 
-Inspect the current source code for any additional parameters and preserve them.
+Published historical versions are stored in the shared Artifact Store.
 
-Do not change existing parameter ranges, defaults, or display conventions without a technical reason.
+Do not use symbolic links as the default implementation.
 
-Preserve numeric precision and zero values.
+### 8.3 Workspace Manifest
 
-Do not silently clamp parameters or substitute defaults.
-
-### 7.3 Reasoning Effort
-
-Keep the existing reasoning effort slider and related controls.
-
-The current application supports model-specific reasoning levels.
-
-Preserve the actual supported values and their ordering.
-
-When the selected model changes, the frontend must display the available reasoning options for that model.
-
-The authoritative list comes from backend model metadata.
-
-Preserve existing behaviour when the user changes reasoning effort.
-
-### 7.4 Backend Persistence
-
-Store the selected model and parameters for each dialogue in the backend filesystem.
+Maintain a manifest for the logical files in each Dialogue.
 
 Example:
 
 ```json
 {
   "dialogue_id": "dlg_001",
-  "model_profile_id": "coder",
-  "generation_settings": {
-    "temperature": 0,
-    "max_tokens": 200000,
-    "top_p": 0.95,
-    "top_k": 20,
-    "min_p": 0,
-    "repetition_penalty": 1,
-    "presence_penalty": 0,
-    "reasoning_effort": "auto"
+  "revision": 4,
+  "files": {
+    "alpha.py": {
+      "artifact_id": "artifact_001",
+      "current_version_id": "v002",
+      "content_sha256": "..."
+    }
   }
 }
 ```
 
-These values are illustrative.
+The manifest records the current published version associated with each working file.
 
-Use the existing values and behaviour as the reference.
+If a file was modified outside the application, detect that its content differs from the recorded hash.
 
-When the user changes a setting:
+Do not silently overwrite externally modified files.
 
-1. The frontend sends the change to Python.
-2. Python validates the setting.
-3. Python saves the setting.
-4. Python returns the authoritative value.
-5. The frontend updates its display.
+### 8.4 Workspace Isolation
 
-A failed save must not appear successful.
+Different Dialogues may contain identical filenames.
 
-Settings must survive application restarts.
+One Dialogue must not modify another Dialogue's Workspace implicitly.
 
-### 7.5 Settings During Generation
+All Dialogues may share the backend Artifact Store for immutable versions.
 
-When a request starts, create an immutable snapshot of the effective model settings.
+Do not implement automatic cross-Dialogue file sharing in Phase 2.
 
-Changes made after the request starts must not silently alter the running request.
+### 8.5 Dialogue Deletion
 
-The updated settings apply to subsequent requests.
+Do not silently destroy historical Runs or Artifact Versions when a Dialogue is removed.
 
-The Info window must show the settings actually used for that request.
+Use a simple recoverable deletion or archive policy where appropriate.
+
+Document the behaviour.
+
+Do not implement complex retention management.
 
 ---
 
-## 8. Conversation History Management
+# PART D — PERSISTENT RUNS
 
-Move conversation history management entirely to Python.
+## 9. Run Manager
 
-The backend must manage:
+A Run represents one execution of an LLM generation request.
 
-- Dialogue creation.
-- Dialogue deletion.
-- Dialogue renaming.
-- Message storage.
-- Active conversation history.
-- System prompts.
-- Dialogue settings.
-- Undo.
-- Redo.
-- Regeneration.
-- Conversation revisions.
+Each Run must have a unique stable identifier.
 
-The frontend only sends actions and renders backend state.
+The Run Manager must execute in Python.
 
-### 8.1 Backend as Single Source of Truth
+A Run must not depend on an open browser connection.
 
-The backend determines which messages are active.
+### 9.1 Run States
 
-The frontend must not submit the entire conversation history with every new message.
+Support:
 
-Instead, it submits the dialogue identifier and current user action.
+| State | Meaning |
+|---|---|
+| `queued` | Accepted and waiting |
+| `running` | Executing |
+| `completed` | Finished successfully |
+| `failed` | Execution failed |
+| `cancelled` | Explicit cancellation completed |
+| `interrupted` | Execution stopped unexpectedly |
 
-For example:
+Do not treat browser disconnection as cancellation.
+
+Do not assume the HTTP stream closing means successful model completion.
+
+Record the provider finish reason separately.
+
+### 9.2 Run Creation
+
+When the user sends a message:
+
+1. Validate the Dialogue and its current revision.
+2. Capture the effective conversation context.
+3. Capture the selected model and generation parameters.
+4. Capture the active Workspace identity.
+5. Create a persistent Run record.
+6. Save the effective request without credentials.
+7. Queue the Run.
+8. Return its Run ID.
+9. Execute it independently of the browser connection.
+
+Use an idempotency key.
+
+If an identical request is retried with the same key, return the original Run ID.
+
+Reject reuse of a key with a different payload.
+
+Do not execute duplicate LLM requests because of network retries.
+
+### 9.3 Run Record
+
+Store at least:
 
 ```json
 {
+  "run_id": "run_001",
+  "workspace_id": "workspace-id",
   "dialogue_id": "dlg_001",
-  "content": "Explain this function"
+  "run_type": "llm_generation",
+  "status": "running",
+  "created_at": "2026-11-22T12:00:00Z",
+  "started_at": "2026-11-22T12:00:01Z",
+  "completed_at": null,
+  "model_profile_id": "coder",
+  "dialogue_revision": 12,
+  "last_event_seq": 35,
+  "retry_of": null
 }
 ```
 
-The backend loads the relevant state and constructs the effective LLM context.
+Keep the request snapshot immutable.
 
-### 8.2 Undo and Redo
+Changing Dialogue settings must not modify a running request.
 
-Preserve the exact Undo/Redo behaviour of the current application.
+### 9.4 Execution
 
-At minimum:
+Use a small application-managed Run Manager.
 
-1. Support multiple consecutive Undo operations.
-2. Support multiple consecutive Redo operations.
-3. Undo must not immediately destroy message history.
-4. A user must be able to restore an undone turn before a new response is committed.
-5. A successful new response may close the old Redo branch.
-6. A failed or cancelled response must not accidentally destroy the recoverable Redo branch.
-7. Regeneration must preserve the current application's branching semantics.
+It must:
 
-Inspect what the existing application considers one Undo unit.
+- Start queued requests.
+- Track active requests.
+- Enforce concurrency limits.
+- Handle explicit cancellation.
+- Persist streaming events.
+- Save generated file drafts.
+- Finalize Run outcomes.
+- Release resources.
 
-If it treats one user question and its assistant answer as a single turn, preserve that behaviour.
+A single asynchronous worker is sufficient initially.
 
-Do not change the unit of Undo.
+Do not introduce Redis, RQ, Celery, or a database.
 
-### 8.3 Pending Generation
-
-Distinguish between:
-
-- Committed conversation turns.
-- A user message awaiting a response.
-- A response currently streaming.
-- A completed response.
-- A cancelled or failed run.
-
-Do not treat partial streaming content as a fully completed assistant response.
-
-Preserve already displayed content when a generation is cancelled or fails.
-
-Keep enough information to inspect or retry a failed generation.
-
-Do not incorrectly advance the committed history or destroy the previous Redo branch.
-
-Use the existing user-facing behaviour as the compatibility reference.
-
-### 8.4 Autosave
-
-Preserve autosave.
-
-The backend must persist authoritative conversation state.
-
-Conversation history and settings must survive:
-
-- Browser refresh.
-- Frontend restart.
-- Backend restart.
-
-The frontend should not require a manual Save action.
-
-### 8.5 Concurrent Actions
-
-Use a revision number or equivalent mechanism.
-
-Prevent stale frontend actions from overwriting newer dialogue state.
-
-Use stable action identifiers to avoid duplicate operations caused by HTTP retries.
-
-For Phase 1, allow only one active generation per dialogue unless the existing application already defines different behaviour.
-
-Keep concurrency handling straightforward.
+Do not create unmanaged threads for each HTTP request.
 
 ---
 
-## 9. Persistent Storage — Flat Files Only
+## 10. Browser Disconnect and Reconnection
 
-Use human-readable JSON, JSONL, and directories.
+### 10.1 Browser Disconnect
 
-**Do not use SQLite or PostgreSQL.**
+Closing the browser or disconnecting the streaming connection must not cancel the Run.
 
-### 9.1 Suggested Directory Structure
+The backend must continue:
 
-```text
-project/
-│
-├── frontend/
-│   ├── index.html
-│   ├── js/
-│   └── css/
-│
-├── backend/
-│   ├── main.py
-│   ├── config.py
-│   ├── llm_client.py
-│   ├── conversations.py
-│   ├── storage.py
-│   └── streaming.py
-│
-├── config/
-│   └── models.example.yaml
-│
-├── data/
-│   ├── dialogues/
-│   │   ├── dlg_001/
-│   │   │   └── dialogue.json
-│   │   │
-│   │   └── dlg_002/
-│   │       └── dialogue.json
-│   │
-│   └── runs/
-│       └── run_001/
-│           ├── request.json
-│           ├── events.jsonl
-│           └── status.json
-│
-├── tests/
-├── requirements.txt
-└── README.md
-```
+- Upstream LLM generation.
+- Event persistence.
+- Draft file persistence.
+- Run-state management.
 
-This is a suggested structure.
+Only an explicit Stop action should request cancellation.
 
-Adapt it to the existing repository.
+### 10.2 Reconnection
 
-Do not create empty modules for future functionality.
+When the user reconnects:
 
-### 9.2 Dialogue Storage
+1. Retrieve the original Run status.
+2. Retrieve persisted events.
+3. Restore previously generated content.
+4. Continue receiving new events if the Run is active.
 
-Use a human-readable JSON record for each dialogue.
+Do not start another LLM request.
 
-Store:
+Do not regenerate the previous output.
 
-- Dialogue ID.
-- Title.
-- Created and updated timestamps.
-- Selected model profile.
-- Generation settings.
-- System prompt.
-- Committed messages.
-- Active-history state.
-- Undo/Redo state.
-- Revision information.
+### 10.3 Event Replay
 
-A single atomic dialogue snapshot is acceptable for Phase 1.
+Persist streaming events in JSONL.
 
-It avoids unnecessary coordination between multiple files during a history update.
-
-Do not rewrite the dialogue snapshot for every streamed token.
-
-Store streaming records separately and commit conversation state at appropriate transition points.
-
-### 9.3 Run Storage
-
-Store each LLM generation in a separate run directory.
-
-Suggested files:
-
-**request.json**
-
-The effective LLM request used for the run, excluding credentials.
-
-**events.jsonl**
-
-Structured generation and execution events.
-
-**status.json**
-
-Run identity, dialogue ID, model, timestamps, final status, finish reason, token usage when available, and errors.
-
-Make these records readable using ordinary text editors.
-
-Use descriptive field names and ISO 8601 timestamps.
-
-### 9.4 File Integrity
-
-Implement:
-
-- Atomic replacement of mutable JSON files.
-- Serialized writes or per-dialogue locks.
-- Safe appending to JSONL.
-- Detection of incomplete trailing JSONL entries.
-- Recovery from interrupted writes.
-- Stable unique identifiers.
-- Validation of file paths.
-- Protection against directory traversal.
-
-Avoid complicated transaction frameworks.
-
-For multi-file updates, clearly define which file is authoritative and how interrupted operations are reconciled.
-
-Use the smallest reliable solution.
-
-### 9.5 Administrative Inspection
-
-An administrator must be able to inspect:
-
-- Dialogue history.
-- Model selection.
-- Generation parameters.
-- Active and undone turns.
-- LLM requests.
-- Run status.
-- Errors.
-- Streaming events.
-
-No database software or custom administration interface should be necessary.
-
-Document the directory structure and record formats.
-
-Do not use pickle or opaque binary serialization.
-
-### 9.6 Storage Boundary
-
-Keep filesystem operations inside a small storage module.
-
-Expose simple operations such as:
-
-```python
-load_dialogue(dialogue_id)
-save_dialogue(dialogue)
-list_dialogues()
-create_dialogue(settings)
-load_run(run_id)
-save_run_status(run_id, status)
-append_run_event(run_id, event)
-```
-
-These are conceptual operations. Adapt them to the actual implementation.
-
-Do not build a generic database abstraction framework.
-
-The purpose is to keep file-format details out of the API and LLM code.
-
----
-
-## 10. Existing Data Migration
-
-The current application may store dialogues and model settings in browser storage.
-
-Inspect the actual storage implementation.
-
-Preserve existing user data.
-
-### 10.1 Conversation Migration
-
-Provide a safe, one-time migration into backend flat files.
-
-Preserve, where available:
-
-- Dialogue titles.
-- Message content and ordering.
-- System prompts.
-- Selected model.
-- Generation parameters.
-- Reasoning settings.
-- Active history.
-- Recoverable Undo/Redo state.
-
-The migration must be idempotent.
-
-Refreshing the browser must not import the same dialogues again.
-
-Use stable import identifiers or fingerprints.
-
-### 10.2 Credential Handling
-
-Do not migrate API keys into dialogue files.
-
-Move endpoint credentials into the backend configuration.
-
-Do not expose legacy keys in frontend requests, logs, or exported dialogue records.
-
-Do not delete existing browser data until migration has been verified.
-
-After migration, remove obsolete credential storage where safe and document any required credential rotation.
-
-### 10.3 Recovery
-
-Provide a simple backup or export procedure before migration.
-
-If automatic migration cannot safely preserve an existing feature, report the limitation.
-
-Do not silently discard records.
-
----
-
-## 11. LLM Request Construction
-
-The Python backend must construct the complete request.
-
-For each generation:
-
-1. Load the active dialogue.
-2. Load its current model selection.
-3. Load the backend model configuration.
-4. Load the saved generation parameters.
-5. Load the active conversation history.
-6. Load the current system prompt.
-7. Construct the provider request.
-8. Record the safe effective request.
-9. Start streaming.
-
-Preserve current system prompt semantics and message ordering.
-
-Do not inject additional system messages unless required by existing behaviour.
-
-Do not add Skills or Tool Definitions in Phase 1.
-
-If an existing application feature already uses command-related messages, preserve its established behaviour. Do not introduce new command execution or expand existing permissions.
-
-The backend must validate dialogue state before starting a request.
-
----
-
-## 12. Streaming Protocol
-
-Use an HTTP streaming response.
-
-Prefer newline-delimited JSON (NDJSON).
-
-Each event must include:
+Example:
 
 ```json
 {
   "schema_version": 1,
   "run_id": "run_001",
-  "seq": 1,
+  "seq": 36,
+  "timestamp": "2026-11-22T12:00:05Z",
   "type": "message.delta",
   "payload": {
-    "text": "Hello"
+    "text": "Generated text..."
   }
 }
 ```
 
-Use a unique `run_id` for each generation.
+Use monotonically increasing sequence numbers per Run.
 
-Sequence numbers must increase monotonically within the run.
+Provide an endpoint to retrieve events after a specified sequence.
 
-### Required Event Types
+Example:
 
-| Event | Purpose |
-|---|---|
-| `run.started` | Generation started |
-| `request.prepared` | Safe request inspection data is available |
-| `message.delta` | Incremental assistant text |
-| `reasoning.delta` | Provider-supplied reasoning |
-| `run.completed` | Generation completed |
-| `run.cancelled` | Generation cancelled |
-| `run.failed` | Generation failed |
+`GET /api/runs/{run_id}/events?after_seq=35`
 
-Define a consistent payload for each event.
+Support historical replay followed by live events.
 
-The frontend must display text as soon as it arrives.
+Avoid gaps between replay and live streaming.
 
-Do not wait for the complete response.
+The frontend must suppress duplicate sequence numbers.
 
-Handle:
+### 10.4 Persist Before Broadcast
 
-- Provider chunks containing partial JSON.
-- UTF-8 characters split across reads.
-- Multiple logical events in one network chunk.
-- Unexpected provider disconnects.
-- Empty streams.
-- Cancellation while streaming.
-- Provider completion metadata.
+Persist events before broadcasting them.
 
-Do not confuse transport completion with successful generation.
+Small bounded batches are acceptable.
 
-Preserve the existing code and file rendering behaviour.
+Do not require a disk write for each token.
 
-Do not introduce a new artifact-management subsystem.
+Only committed events may be described as durably saved.
 
-### 12.1 Reasoning
+The event log must be sufficient to reconstruct streamed output after reconnecting.
 
-Some models provide separate reasoning output.
+### 10.5 Cancellation
 
-Forward it when the endpoint actually provides it.
+Explicit Stop must:
 
-Keep reasoning separate from normal assistant text.
-
-Preserve the existing reasoning panel, formatting, and scrolling.
-
-Do not fabricate reasoning output.
-
-Do not assume every model provides the same reasoning fields.
-
----
-
-## 13. Cancellation
-
-Preserve the existing Stop button.
-
-A Stop action must:
-
-1. Identify the active generation.
-2. Request cancellation from Python.
+1. Identify the active Run.
+2. Request cancellation.
 3. Cancel or close the upstream LLM request where supported.
-4. Stop further response display.
-5. Preserve already received content.
-6. Save accurate run status.
-7. Leave the dialogue in a consistent state.
-8. Permit the next request to start.
+4. Preserve received output.
+5. Preserve draft files.
+6. Record the correct terminal state.
+7. Allow another request.
 
-Handle cancellation and normal completion occurring at nearly the same time.
-
-Do not report a completed run as cancelled.
-
-Do not allow abandoned requests to continue consuming model resources unnecessarily.
-
-An in-memory active-run registry is acceptable for Phase 1.
-
-Use a single backend worker if the implementation depends on process-local cancellation state.
-
-A browser disconnect must have clearly defined cancellation behaviour.
-
-Do not implement general long-running task recovery in this phase.
+Handle cancellation/completion races.
 
 ---
 
-## 14. Info Window — Prompt Inspection
+## 11. Backend Restart and Recovery
 
-Preserve the existing Info window.
+An unexpected backend termination may stop active LLM generation.
 
-Its content must come from the Python backend.
+Do not attempt exact-token resumption in Phase 2.
 
-Do not reconstruct the effective prompt independently in JavaScript.
+### 11.1 Startup Reconciliation
+
+On startup:
+
+1. Acquire the Instance Lock.
+2. Read the Bootstrap Configuration.
+3. Acquire the Workspace Lock.
+4. Load the Workspace.
+5. Inspect persisted Run records.
+6. Identify abandoned active Runs.
+7. Mark them `interrupted`.
+8. Preserve their events and drafts.
+9. Begin accepting new requests.
+
+Do not leave abandoned Runs indefinitely marked `running`.
+
+Do not automatically restart interrupted Runs.
+
+### 11.2 Retry
+
+Allow retry of failed or interrupted Runs.
+
+A retry must:
+
+- Create a new Run ID.
+- Reference the original Run.
+- Preserve the original request snapshot unless the user explicitly changes it.
+- Preserve the original events and artifacts.
+- Avoid duplicating conversation messages.
+
+If active Dialogue history has changed, do not silently overwrite it.
+
+Do not describe restarting generation as continuing from the interrupted token.
+
+---
+
+# PART E — FILES AND VERSIONING
+
+## 12. File Lifecycle
+
+Generated files have three distinct forms:
+
+**Run Draft**
+
+Incomplete or in-progress generated content.
+
+**Published Artifact Version**
+
+A structurally complete, immutable file version.
+
+**Dialogue Working File**
+
+The current editable file in a Dialogue Workspace.
+
+Do not combine these into one mutable record.
+
+### 12.1 Drafts
+
+During generation:
+
+- Save drafts under the generating Run.
+- Update drafts incrementally.
+- Make them available for preview.
+- Mark them as incomplete until completion is validated.
+- Preserve them after cancellation or interruption.
+
+Inspect and reuse the existing file-generation format.
+
+Do not assume the model always follows the expected file format.
+
+Retain the original model output.
+
+If file boundaries are ambiguous, preserve the content as a draft instead of automatically publishing it.
+
+### 12.2 Publication
+
+When file generation finishes:
+
+1. Validate its logical path.
+2. Validate file boundaries.
+3. Confirm the relevant Run outcome permits publication.
+4. Save immutable content.
+5. Calculate its SHA-256 hash.
+6. Write version metadata.
+7. Finalize publication.
+8. Update the Dialogue Working File when safe.
+
+Do not overwrite existing versions.
+
+Structural completion does not imply executable-code correctness.
+
+Do not introduce code compilation in Phase 2.
+
+### 12.3 Artifact Identity
+
+Use stable Artifact and Version IDs.
+
+Store:
+
+- Artifact ID.
+- Version ID.
+- Dialogue ID.
+- Logical filename.
+- Generating Run ID.
+- Parent Version ID.
+- Creation time.
+- Content hash.
+- File size.
+- Publication status.
+
+### 12.4 Current Working Files
+
+After publication, update the real working file when safe.
+
+Before replacing an existing file, verify:
+
+- Workspace revision.
+- Current version pointer.
+- Current file content hash.
+
+If the user or another process changed the file after the Run started, preserve both contents.
+
+Do not silently overwrite the user's changes.
+
+Save the generated content as another version and report the conflict.
+
+### 12.5 Compare Versions
+
+Provide a working version comparison view.
+
+Users must be able to choose two versions and inspect their differences.
+
+A line-based unified diff is sufficient for text files.
+
+Use readable formatting.
+
+### 12.6 Restore Versions
+
+Restoration must:
+
+1. Load a selected historical version.
+2. Create a new immutable version with the restored content.
+3. Record the source version.
+4. Update the current working file.
+5. Update the Workspace manifest.
+6. Preserve all previous versions.
+
+Restoration is an explicit user action.
+
+It must not change the conversation history.
+
+### 12.7 Download
+
+Allow users to download generated files.
+
+Preserve logical filenames.
+
+Validate paths.
+
+Display potentially executable content safely.
+
+Do not execute generated HTML or JavaScript in a privileged application context.
+
+---
+
+## 13. Files Workspace UI
+
+Add a **Files** area to the frontend.
 
 Display:
 
-- Model profile.
-- Actual model ID.
-- System prompt.
-- Active conversation messages.
-- Effective generation parameters.
-- Reasoning effort.
-- The final request payload prepared for the provider.
-- Request and run status.
+- Current Dialogue files.
+- Draft files.
+- Published versions.
+- Generation status.
+- File timestamps.
+- Associated Runs.
 
-For Phase 1:
+Provide working actions for:
 
-```text
-Tools: None
-Skills: None
-```
+- Preview.
+- Download.
+- View versions.
+- Compare.
+- Restore.
+- Open generating Run.
 
-If the existing application has an established tool-related capability, first identify it and preserve its current behaviour. Do not implement new tool orchestration.
+Use the existing frontend layout and styling.
 
-The Info window must be available during generation and after completion.
+Reuse the current code renderer where practical.
 
-Do not display credentials or authentication headers.
-
-Do not expose private backend configuration unnecessarily.
-
-The recorded request must correspond to the actual request sent to the provider.
+Large text files must remain scrollable.
 
 ---
 
-## 15. HTTP API
+# PART F — AUTOSAVE
 
-Design a small and consistent API.
+## 14. Autosave
 
-Suggested endpoints:
+Implement autosave for all relevant working state.
+
+The backend must remain authoritative.
+
+### 14.1 Conversation Changes
+
+Persist accepted conversation changes immediately.
+
+This includes:
+
+- Sent messages.
+- Completed response commits.
+- Undo.
+- Redo.
+- Regeneration.
+- Dialogue rename.
+- Dialogue deletion or archival.
+
+Preserve Phase 1 semantics.
+
+### 14.2 Dialogue Settings
+
+Autosave:
+
+- Model selection.
+- Temperature.
+- Max Tokens.
+- Top P.
+- Top K.
+- Min P.
+- Repetition Penalty.
+- Presence Penalty.
+- Reasoning Effort.
+- Other existing Dialogue settings.
+
+Use a short debounce for rapid changes.
+
+Validate changes in Python.
+
+Do not show a failed save as successful.
+
+### 14.3 Unsent Input
+
+Autosave the unsent message draft for each Dialogue.
+
+Use approximately 500–800 ms debounce.
+
+Flush pending changes when switching Dialogues where possible.
+
+Restore the draft when reopening the Dialogue.
+
+If the backend is unavailable, retain unsaved input in the frontend and indicate that it has not been saved.
+
+Do not rely only on browser unload events.
+
+### 14.4 Streaming Output
+
+Persist streaming events continuously in bounded batches.
+
+Commit events before broadcasting them.
+
+Do not rewrite large conversation records per token.
+
+### 14.5 Generated File Drafts
+
+Save drafts incrementally during generation.
+
+Keep incomplete drafts after interruption.
+
+Do not publish incomplete files automatically.
+
+### 14.6 Browser File Editing
+
+If the current frontend supports editing files, preserve it.
+
+Autosave working-file changes using a short debounce.
+
+Do not create an immutable version for each keystroke.
+
+Use revisions or content hashes to detect conflicts.
+
+### 14.7 Save Feedback
+
+Use concise status text where necessary:
+
+- Saving
+- Saved
+- Not saved
+- Save failed
+
+Only show Saved after backend confirmation.
+
+---
+
+# PART G — RUNS WORKSPACE
+
+## 15. Runs UI
+
+Add a **Runs** area to the existing frontend.
+
+### 15.1 Run List
+
+Display:
+
+- Run ID.
+- Dialogue title.
+- Selected model.
+- Request summary.
+- Start time.
+- Status.
+- Completion time, if available.
+
+Support browsing previous Runs.
+
+### 15.2 Run Details
+
+Display:
+
+- Run state.
+- Dialogue association.
+- Model settings snapshot.
+- Saved request.
+- Streamed text.
+- Reasoning content where available.
+- Execution events.
+- Errors.
+- Generated files.
+
+Reuse existing UI components.
+
+### 15.3 Run Actions
+
+Provide:
+
+- Open.
+- Stop.
+- Retry.
+- Open Files.
+
+Only display actions valid for the current Run state.
+
+Do not invent progress percentages or remaining-time estimates.
+
+---
+
+# PART H — STATE OWNERSHIP
+
+## 16. Conversation, Run, and Artifact State
+
+Keep these separate.
+
+**Conversation** determines the active LLM context.
+
+**Run** records a particular execution and its outputs.
+
+**Artifact** records a logical file and its versions.
+
+One Conversation can have many Runs.
+
+One Run can produce multiple Artifact Versions.
+
+### 16.1 Undo and Redo
+
+Undo/Redo changes the active conversation context.
+
+It must not delete Runs.
+
+It must not delete Artifact Versions.
+
+It must not automatically restore an old working file.
+
+File restoration is independent.
+
+### 16.2 Completion and Reconnection
+
+Reconnecting must not duplicate assistant messages.
+
+Use stable message and Run identifiers.
+
+If the active Dialogue revision changed during a Run, preserve the Run result but do not overwrite newer conversation state.
+
+### 16.3 Multiple Browser Windows
+
+Allow multiple browser windows to connect to the same backend.
+
+Use revisions to reject stale modifications.
+
+Do not implement a collaborative text editor.
+
+---
+
+# PART I — FILESYSTEM SAFETY
+
+## 17. Filesystem Integrity
+
+Use JSON, JSONL, and ordinary files.
+
+Do not introduce a database.
+
+### 17.1 Atomic Writes
+
+Use atomic replacement for mutable JSON records.
+
+Write temporary files on the same filesystem.
+
+Publish new content only after successful writing and validation.
+
+For multi-file operations, define a clear commit point and recovery behaviour.
+
+### 17.2 Event Logs
+
+Use append-only JSONL.
+
+Detect incomplete trailing entries.
+
+Preserve event ordering and unique sequence numbers.
+
+### 17.3 Artifact Versions
+
+Published versions must be immutable.
+
+Use content hashes for integrity checks.
+
+Do not update a Workspace manifest before its referenced Artifact Version is ready.
+
+### 17.4 Path Safety
+
+Prevent:
+
+- Directory traversal.
+- Absolute logical artifact paths.
+- Unsafe symbolic-link and reparse-point traversal.
+- Access outside the configured Workspace.
+- Arbitrary filesystem paths supplied by LLM output.
+
+The backend resolves all paths.
+
+### 17.5 Resource Limits
+
+Provide configurable limits for:
+
+- Generated file size.
+- Files per Run.
+- Total output per Run.
+- Active Runs.
+
+Do not automatically delete historical Runs or Artifact Versions.
+
+Document backup and disk usage.
+
+---
+
+# PART J — API
+
+## 18. HTTP API
+
+Extend the existing FastAPI application.
+
+Reuse Phase 1 endpoints where practical.
+
+### Workspace
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/health` | Backend health |
-| `GET /api/model-profiles` | Safe model metadata |
-| `GET /api/dialogues` | List dialogues |
-| `POST /api/dialogues` | Create dialogue |
-| `GET /api/dialogues/{id}` | Retrieve dialogue |
-| `PATCH /api/dialogues/{id}` | Rename or update dialogue metadata |
-| `DELETE /api/dialogues/{id}` | Delete dialogue |
-| `PATCH /api/dialogues/{id}/settings` | Update per-dialogue settings |
-| `POST /api/dialogues/{id}/undo` | Undo |
-| `POST /api/dialogues/{id}/redo` | Redo |
-| `POST /api/dialogues/{id}/regenerate` | Regenerate according to current history semantics |
-| `POST /api/dialogues/{id}/messages/stream` | Send message and stream response |
-| `POST /api/runs/{id}/cancel` | Cancel generation |
-| `GET /api/runs/{id}` | Retrieve run status |
-| `GET /api/runs/{id}/request` | Inspect safe effective request |
+| `GET /api/workspace/config` | Read Workspace configuration |
+| `POST /api/workspace/create` | Create a new Workspace |
+| `POST /api/workspace/open` | Open an existing Workspace |
+| `POST /api/workspace/switch` | Change active Workspace |
 
-Provide a migration endpoint if necessary.
+### Runs
 
-The names are suggestions.
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/runs` | Create and queue a Run |
+| `GET /api/runs` | List Runs |
+| `GET /api/runs/{id}` | Get Run details |
+| `GET /api/runs/{id}/events` | Replay and follow events |
+| `POST /api/runs/{id}/cancel` | Cancel a Run |
+| `POST /api/runs/{id}/retry` | Retry a Run |
+| `GET /api/runs/{id}/request` | Inspect the request |
 
-Adapt them to the actual application where appropriate.
+### Artifacts
 
-Document request and response schemas.
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/artifacts` | List Artifacts |
+| `GET /api/artifacts/{id}` | Get Artifact metadata |
+| `GET /api/artifacts/{id}/versions` | List versions |
+| `GET /api/artifacts/{id}/versions/{version}` | Read version |
+| `GET /api/artifacts/{id}/diff` | Compare versions |
+| `POST /api/artifacts/{id}/restore` | Restore old version |
+| `GET /api/artifacts/{id}/download` | Download file |
 
-The frontend must not depend on the internal filesystem layout.
+Add draft-preview and input-autosave endpoints as needed.
 
-Use explicit errors for invalid actions, unknown dialogues, conflicting revisions, and unsupported settings.
+Names may be adapted to existing conventions.
 
----
+Document the actual implemented contract.
 
-## 16. Frontend Requirements
-
-### 16.1 Remove
-
-Completely remove:
-
-- The frontend Model Config section.
-- Model Base URL editing.
-- Model API key editing.
-- Model ID editing.
-- Frontend model connection configuration storage.
-- Direct LLM provider requests.
-
-### 16.2 Preserve
-
-Preserve all working frontend functionality.
-
-In particular:
-
-- Dialogue list.
-- Dialogue creation.
-- Dialogue deletion.
-- Dialogue renaming.
-- Dialogue switching.
-- Per-dialogue Thinker/Coder selection.
-- Per-dialogue generation parameters.
-- Reasoning effort controls.
-- System prompt editor.
-- Autosave indicator.
-- Streaming text.
-- Reasoning display.
-- Code display.
-- Generated-file display.
-- Independent scrolling regions.
-- Prompt inspector.
-- Stop button.
-- Undo and Redo.
-- Regeneration.
-- Existing QA behaviour.
-- Existing command or Agent-related UI, where present.
-
-Do not change the meaning of existing commands or enable new command execution.
-
-Preserve the current visual layout, typography, colours, and interaction patterns.
-
-The Model Config section should disappear without leaving a broken or unusable sidebar.
-
-### 16.3 Frontend State
-
-Frontend state is for rendering and temporary interaction.
-
-Persistent application state comes from Python.
-
-When switching dialogues, retrieve the relevant authoritative state.
-
-Do not keep a second independently updated conversation history in JavaScript.
-
-Use optimistic UI updates only where rollback on failure is handled correctly.
-
-### 16.4 Rendering Performance
-
-Preserve responsive streaming.
-
-Avoid unnecessary full-page re-renders.
-
-Maintain independent scrollbars for reasoning and generated-code areas.
-
-Do not introduce FPS displays or developer diagnostics into the interface.
+Do not expose internal filesystem paths through API parameters.
 
 ---
 
-## 17. Security and Error Handling
+# PART K — TESTING
 
-### 17.1 Secrets
+## 19. Automated Tests
 
-Do not expose:
+Implement tests using existing project conventions.
 
-- API keys.
-- Authorization headers.
-- Backend environment variables.
-- Private configuration files.
-- Raw credentials in logs.
+Use a deterministic local mock LLM for streaming, cancellation, and interruption tests.
 
-Exclude secrets from run records and prompt inspection.
+### 19.1 Instance Locking
 
-### 17.2 Local API Access
+Verify:
 
-Default to a local backend binding.
+- The first backend acquires the Instance Lock.
+- A second backend cannot acquire it concurrently.
+- Normal shutdown releases it.
+- Process termination releases it.
+- A stale lock file does not block startup.
+- A second process cannot acquire an active Workspace Lock.
+- Multiple browser clients can connect to the same backend.
 
-Avoid unrestricted CORS.
+### 19.2 Workspace Setup
 
-Validate requests before processing.
+Verify:
 
-Do not allow frontend-supplied dialogue IDs or file paths to access arbitrary filesystem locations.
+- No Root triggers the setup screen.
+- A new Root can be created.
+- The correct directory structure is initialized.
+- Root configuration survives restart.
+- Existing Phase 2 Workspace data is restored.
+- Each Dialogue gets an independent subdirectory.
+- Two Dialogues can contain identical filenames.
 
-Treat stored dialogue content and LLM output as data, not executable application instructions.
+No Phase 1 historical data migration test is required.
 
-Preserve existing command execution restrictions and explicit user approvals.
+### 19.3 Workspace Switching
 
-### 17.3 Error Handling
+Verify:
 
-Handle:
+- Switching between compatible Workspaces works.
+- Old Workspace contents remain intact.
+- Switching to a locked Workspace is rejected.
+- Switching during queued or active Runs is rejected.
+- Failed switching preserves the previous Workspace.
+- Stale browser requests cannot modify the newly activated Workspace.
+- Restart after a failed or interrupted switch produces a consistent active Workspace.
 
-- Backend unavailable.
-- Model endpoint unavailable.
-- Authentication failure.
-- Unknown model.
-- Unsupported parameter.
-- Invalid dialogue.
-- Stale dialogue revision.
-- Provider HTTP error.
-- Malformed provider response.
-- Interrupted stream.
-- Request timeout.
+### 19.4 Runs
+
+Test:
+
+- Creation.
+- Queueing.
+- Execution.
+- Completion.
+- Failure.
 - Cancellation.
-- Filesystem write failure.
-- Corrupt or incomplete records.
-- Migration failure.
+- Interruption.
+- Retry.
+- Request snapshot immutability.
+- Idempotency.
+- Accurate final state.
 
-Show concise user-facing error messages.
+### 19.5 Browser Disconnect
 
-Keep useful technical details in backend logs without leaking credentials.
+Test:
 
-A failed request must not leave the conversation history or UI in an inconsistent state.
+1. Start slow generation.
+2. Disconnect the frontend.
+3. Confirm generation continues.
+4. Reconnect using the original Run ID.
+5. Replay events.
+6. Confirm no missing or duplicated output.
+7. Confirm no second model request occurred.
 
----
+### 19.6 Backend Restart
 
-## 18. Testing Requirements
+Test:
 
-Use automated tests and practical application demonstrations.
+1. Start a slow Run.
+2. Terminate Python unexpectedly.
+3. Restart Python.
+4. Confirm the Run becomes `interrupted`.
+5. Confirm partial output is retained.
+6. Confirm drafts are retained.
+7. Retry the Run.
+8. Confirm original and retry records remain separate.
 
-Do not rely only on visual inspection.
+### 19.7 Files
 
-### 18.1 Model Configuration Tests
+Test:
 
-Verify:
-
-- Thinker and Coder are loaded from backend configuration.
-- Unknown profiles are rejected.
-- The frontend receives only safe metadata.
-- Supported reasoning effort levels are correct.
-- Generation parameters are validated.
-- Provider-specific parameters are forwarded correctly.
-- No API key appears in frontend responses or run records.
-
-### 18.2 Dialogue Settings Tests
-
-Create two dialogues with different settings.
-
-Verify:
-
-- Each retains its selected model.
-- Each retains its generation parameters.
-- Switching dialogues restores the correct controls.
-- Changes in one dialogue do not affect another.
-- Settings survive browser refresh.
-- Settings survive backend restart.
-- Settings changes during generation do not alter that running request.
-
-### 18.3 History Tests
-
-Verify:
-
-- Dialogue creation.
-- Dialogue deletion and renaming.
-- Message ordering.
-- Persistence across restarts.
-- Multiple Undo operations.
-- Multiple Redo operations.
-- Undo followed by Redo.
-- Undo followed by successful new generation.
-- Undo followed by failed generation.
-- Undo followed by cancelled generation.
-- Regeneration.
-- Stale revision handling.
-- Duplicate action prevention.
-
-Preserve the current application's semantics.
-
-### 18.4 Filesystem Tests
-
-Verify:
-
-- Atomic writes.
-- Per-dialogue write serialization.
-- Restart persistence.
-- Interrupted-write recovery.
+- Single-file generation.
+- Multiple-file generation.
+- Draft preview.
+- Completed publication.
+- Interrupted draft retention.
+- Invalid file boundaries.
+- Immutable versions.
+- Version diff.
+- Restore as a new version.
+- Content hashes.
+- Working-file conflicts.
 - Invalid path rejection.
-- Incomplete JSONL detection.
-- Run-status persistence.
-- Human-readable saved records.
 
-### 18.5 Streaming Tests
+### 19.8 Autosave
 
-Verify:
+Test:
 
-- Incremental display.
-- Chunk boundaries.
-- UTF-8 handling.
-- Reasoning separation.
-- Normal completion.
-- Empty response.
-- Provider error.
-- Interrupted stream.
-- Cancellation.
-- New request after cancellation.
+- Unsent input persistence.
+- Input restoration after refresh.
+- Settings persistence.
+- Rapid successive updates.
+- Save failures.
+- Dialogue switching with pending saves.
+- Streaming persistence.
+- Draft persistence.
+- Conflicting browser updates.
 
-Use local mock servers where appropriate.
-
-### 18.6 Frontend Regression Tests
-
-Verify that:
-
-- The Model Config section is absent.
-- The dialogue list still works.
-- Model selection remains available in each dialogue.
-- All generation settings remain available.
-- Reasoning effort controls work.
-- System prompts work.
-- Info displays the backend request.
-- Undo and Redo work.
-- Streaming is visible.
-- Code and generated files render correctly.
-- Existing command or approval behaviour is unchanged.
-- The frontend layout remains usable.
-
-### 18.7 Existing History Migration Tests
+### 19.9 Conversation Integration
 
 Verify:
 
-- Existing dialogues are imported.
-- Message ordering is preserved.
-- Dialogue settings are preserved.
-- Repeated import does not create duplicates.
-- Original browser data remains recoverable until migration succeeds.
-- API keys are not copied into conversation records.
-
-### 18.8 Real LLM Test
-
-Test against an actual configured model when an endpoint is available.
-
-Demonstrate:
-
-1. Start the application.
-2. Create a dialogue using Thinker.
-3. Change its generation parameters.
-4. Send a message.
-5. Observe streaming output.
-6. Inspect the effective LLM request.
-7. Create a second dialogue using Coder.
-8. Set different generation parameters.
-9. Switch between the two dialogues.
-10. Confirm settings remain independent.
-11. Start a long generation.
-12. Stop the generation.
-13. Send another message.
-14. Refresh the application.
-15. Confirm that history and settings remain intact.
-16. Restart Python.
-17. Confirm that the saved dialogues can still be opened.
-
-Report exactly which tests used real endpoints and which used mocks.
-
-Do not claim real endpoint validation if none was performed.
+- Per-dialogue model selection still works.
+- All existing generation parameters remain available.
+- Undo and Redo still work.
+- Regeneration still works.
+- Runs remain after Undo.
+- Artifacts remain after Undo.
+- Reconnection does not duplicate assistant messages.
+- Cancelled and interrupted Runs do not corrupt active history.
 
 ---
 
-## 19. Acceptance Criteria
+## 20. Required End-to-End Demonstrations
 
-Phase 1 is complete only when all of the following are demonstrated:
+Demonstrate these scenarios in the actual application.
 
-- [ ] The backend runs on a verified supported Python version.
-- [ ] The application runs natively on Windows.
-- [ ] No Docker, WSL, or database is required.
-- [ ] All LLM provider communication occurs in Python.
-- [ ] The frontend Model Config section is completely removed.
-- [ ] Model connection settings are configured only in the backend.
-- [ ] Thinker and Coder remain selectable for each dialogue.
-- [ ] Every existing per-dialogue generation parameter is preserved.
-- [ ] Each dialogue maintains independent settings.
-- [ ] Dialogue history is managed by Python.
-- [ ] History and settings persist using readable flat files.
-- [ ] Existing dialogues are safely migrated.
-- [ ] Undo, Redo, and regeneration behaviour is preserved.
-- [ ] Streaming works incrementally.
-- [ ] Reasoning and assistant text remain separate when supported.
-- [ ] Stop cancels upstream model generation where supported.
-- [ ] The Info window shows the actual backend request.
-- [ ] Existing code and generated-file rendering works.
-- [ ] Existing command-related behaviour is preserved.
-- [ ] No credentials appear in frontend files, API responses, or logs.
-- [ ] Filesystem writes are safe against interrupted operations.
-- [ ] Automated tests pass.
-- [ ] A real end-to-end demonstration is provided where an endpoint is available.
-- [ ] The README contains working Windows setup instructions.
+### Scenario A — First-Time Setup
 
-Do not mark an item complete without evidence.
+1. Start without a configured Workspace Root.
+2. Open the frontend.
+3. Confirm Workspace Setup appears.
+4. Create a new Workspace.
+5. Create two Dialogues.
+6. Confirm each receives an independent directory.
+7. Restart the backend.
+8. Confirm the Root and new Dialogues are restored.
+
+### Scenario B — Background Generation
+
+1. Start a generation that produces at least three files.
+2. Confirm output streams incrementally.
+3. Confirm draft files are saved.
+4. Close the browser during generation.
+5. Keep the backend running.
+6. Reopen the application.
+7. Open the original Run.
+8. Confirm it continued.
+9. Confirm no duplicate request occurred.
+10. Let the Run complete.
+11. Preview and download generated files.
+
+### Scenario C — File Versions
+
+1. Generate a file.
+2. Generate a revised version.
+3. Compare versions.
+4. Restore an earlier version.
+5. Confirm restoration creates a new version.
+6. Confirm earlier versions remain unchanged.
+7. Inspect the real working file using Windows Explorer.
+
+### Scenario D — Autosave
+
+1. Enter a long unsent message.
+2. Allow autosave to complete.
+3. Refresh the browser.
+4. Confirm the draft is restored.
+5. Change the Dialogue model and parameters.
+6. Switch Dialogue.
+7. Return and confirm settings are restored.
+
+### Scenario E — Workspace Switching
+
+1. Open a Workspace containing new Phase 2 records.
+2. Create another Workspace.
+3. Switch to it.
+4. Confirm it has independent records.
+5. Switch back.
+6. Confirm original records remain.
+7. Start a long Run.
+8. Attempt to switch.
+9. Confirm switching is rejected while the Run is active.
+
+### Scenario F — Locking and Recovery
+
+1. Start the backend.
+2. Attempt to start another instance.
+3. Confirm the second instance exits.
+4. Start a Run.
+5. Terminate the backend unexpectedly.
+6. Restart it.
+7. Confirm locks can be reacquired.
+8. Confirm the Run is marked interrupted.
+9. Confirm partial output remains available.
+10. Retry without overwriting the original Run.
+
+### Scenario G — Conversation Undo
+
+1. Generate an answer containing files.
+2. Undo the conversation turn.
+3. Confirm the active conversation changes.
+4. Confirm Runs and file versions remain.
+5. Redo the turn.
+6. Confirm Phase 1 behaviour is preserved.
+
+Use a deterministic slow mock LLM for reliable interruption tests.
+
+Also test against a real configured LLM endpoint when available.
+
+Report mock and real-endpoint results separately.
 
 ---
 
-## 20. Scope Exclusions
+# PART L — SCOPE AND DELIVERY
 
-Do not implement new:
+## 21. Scope Exclusions
 
+Do not implement:
+
+- Phase 1 historical data migration.
+- Legacy chat history import.
+- Workspace migration or automatic copying between Roots.
+- Agent planning.
 - Agent orchestration.
-- Tool Registry.
 - Tool Calling.
 - Skills.
-- MCP integration.
+- MCP.
 - RAG.
 - Java source indexing.
-- Java source knowledge base.
-- Git synchronization.
+- Git source synchronization.
 - Java simulator integration.
+- Java compilation.
+- Python/Java equivalence testing.
 - Backtesting.
-- Alpha generation.
-- Alpha Research loops.
-- Research experiment management.
-- Research artifact archival.
-- Long-running task scheduling.
-- Distributed workers.
+- Alpha research loops.
+- Alpha Bank.
+- Compound Library.
+- Distributed task execution.
+- Multiple Silico backend instances.
 - Database persistence.
+- Docker or WSL requirements.
 
-Existing functionality must be preserved, including any current command or Agent-related behaviour.
+Do not create compatibility code solely for historical Phase 1 data.
 
-Do not create infrastructure solely for a future phase.
+Keep the implementation focused on working Phase 2 capabilities.
 
 ---
 
-## 21. Required Deliverables
+## 22. Required Deliverables
 
-When implementation is complete, provide the following.
+Provide:
 
-### A. Implementation Summary
+**A. Implementation Summary**
 
-Explain what changed.
+Describe the completed Runs, Files, Workspace, Autosave, and locking functionality.
 
-Identify the LLM functions and state-management functions moved from JavaScript to Python.
+**B. Architecture**
 
-### B. Updated Architecture
+Explain Backend Instance ownership, Workspace ownership, execution, event persistence, and Artifact Version management.
 
-Show the final request flow.
+**C. Filesystem Layout**
 
-Clearly identify backend and frontend responsibilities.
+Document persistent directories and formats.
 
-### C. File and Directory Changes
+**D. API Contract**
 
-List all created, modified, and removed files.
+Document added or changed endpoints, schemas, streaming events, and error handling.
 
-Explain the flat-file storage layout.
+**E. Locking and Recovery**
 
-### D. Model Configuration
+Describe the OS locking mechanism, safe switching, shutdown, and restart behaviour.
 
-Provide example backend configuration.
+**F. Autosave**
 
-Explain how to configure Thinker and Coder without editing frontend files.
+Document save triggers, debounce, backend confirmation, and conflict detection.
 
-### E. API Contract
+**G. Test Report**
 
-Document all implemented endpoints, request structures, response structures, streaming events, cancellation, and errors.
+Provide the executed tests and results. Distinguish mock-model tests from real-model tests.
 
-### F. Persistence and Migration
-
-Describe how dialogue state is stored.
-
-Explain how old browser history is imported and how records can be backed up and restored.
-
-### G. Test Results
-
-Report:
-
-- Executed tests.
-- Passed tests.
-- Failed tests.
-- Mock endpoint tests.
-- Real endpoint tests.
-- Outstanding limitations.
-
-### H. Windows Running Instructions
+**H. Windows Instructions**
 
 Provide exact PowerShell commands to:
 
-1. Create the Python environment.
-2. Install dependencies.
-3. Configure model endpoints.
-4. Start the Python backend.
-5. Open the frontend.
-6. Run the tests.
-7. Back up and restore saved dialogue records.
+1. Install dependencies.
+2. Start the backend.
+3. Open the frontend.
+4. Run tests.
+5. Inspect saved Workspace files.
+6. Back up a Workspace.
+7. Restore a Workspace backup.
+8. Restart after interruption.
 
-### I. Working Demonstration
+**I. Working Demonstration**
 
-Demonstrate the migrated application with:
+Demonstrate all seven required end-to-end scenarios.
 
-- Multiple dialogues.
-- Independent model selection.
-- Independent generation settings.
-- Streaming output.
-- Reasoning display where available.
-- Stop and cancellation.
-- Undo/Redo.
-- Backend request inspection.
-- Persistence after restart.
+**J. Known Limitations**
 
-### J. Phase 2 Readiness
+Identify incomplete functionality or unverified behaviour clearly.
 
-Briefly identify which existing interfaces can later support:
+**K. Phase 3 Readiness**
 
-- Persistent runs.
-- File and artifact management.
-- Agent execution.
-- Skills and Tools.
+Briefly explain how the Run Manager and Files Workspace can support future tool execution, Agents, Skills, and Java source investigation.
 
-Do not implement these future capabilities.
+Do not implement Phase 3.
 
 ---
 
-## 22. Execution Instructions
+## 23. Acceptance Criteria
 
-Proceed in this order:
+Phase 2 is complete only when:
+
+- [ ] Only one backend instance can run for the installation.
+- [ ] The Instance Lock uses operating-system-level locking.
+- [ ] The active Workspace Root uses operating-system-level locking.
+- [ ] Backend crashes do not leave permanently blocking stale locks.
+- [ ] The frontend requests setup when no valid Workspace Root exists.
+- [ ] Workspace Root can be configured and changed through the frontend.
+- [ ] Workspace switching is rejected while Runs are queued or active.
+- [ ] Failed Workspace switching preserves the previous Workspace.
+- [ ] Each Dialogue has a persistent directory with real files.
+- [ ] Different Dialogues can contain identical filenames without interference.
+- [ ] Runs continue after browser disconnection.
+- [ ] Reconnection uses the original Run ID.
+- [ ] Events can be replayed without duplication.
+- [ ] Explicit Stop cancels generation where supported.
+- [ ] Backend restart identifies interrupted Runs.
+- [ ] Interrupted Runs can be retried safely.
+- [ ] The Runs interface works.
+- [ ] The Files interface works.
+- [ ] Generated drafts are saved incrementally.
+- [ ] Completed files are published as immutable versions.
+- [ ] Working files are updated safely.
+- [ ] File versions can be compared.
+- [ ] Older versions can be restored as new versions.
+- [ ] Unsent messages are autosaved and restored.
+- [ ] Dialogue settings are autosaved.
+- [ ] Streaming events are persisted.
+- [ ] Concurrent edits do not silently overwrite newer work.
+- [ ] Conversation Undo/Redo remains functional.
+- [ ] Undo does not delete historical Runs or Artifacts.
+- [ ] All existing Phase 1 model controls remain functional.
+- [ ] Backend model credentials remain backend-only.
+- [ ] Storage uses readable flat files.
+- [ ] No database, Docker, or distributed worker is required.
+- [ ] Automated tests pass.
+- [ ] End-to-end demonstrations are completed.
+
+**No Phase 1 historical conversation data needs to be migrated or preserved inside the new Workspace.**
+
+Do not mark an acceptance criterion complete without evidence.
+
+---
+
+## 24. Execution Instructions
+
+Proceed in this order.
 
 **Step 1 — Inspect**
 
-Read the existing application and identify its actual behaviour.
+Study the completed Phase 1 application and document the existing implementation.
 
 **Step 2 — Plan**
 
-Prepare a concise implementation plan based on the existing code.
+Prepare a concise implementation plan based on the actual code.
 
-**Step 3 — Implement Backend**
+**Step 3 — Instance and Workspace Management**
 
-Add Python model configuration, dialogue state, flat-file persistence, request construction, streaming, and cancellation.
+Implement Bootstrap Configuration, Instance Lock, Workspace Lock, initial setup, and safe switching.
 
-**Step 4 — Migrate Frontend**
+**Step 4 — Dialogue Workspaces**
 
-Remove frontend model connection configuration.
+Implement automatic Dialogue directories, real working files, and Workspace manifests.
 
-Replace direct LLM requests with Python API calls.
+**Step 5 — Persistent Runs**
 
-Preserve existing dialogue settings and frontend behaviour.
+Decouple LLM execution from browser connections. Implement Run persistence, event replay, cancellation, and restart recovery.
 
-**Step 5 — Migrate Existing Data**
+**Step 6 — File Management**
 
-Safely import existing dialogues and settings.
+Implement drafts, immutable versions, previews, downloads, comparison, restoration, and safe working-file synchronization.
 
-Verify the migration before retiring old browser storage.
+**Step 7 — Autosave**
 
-**Step 6 — Test**
+Implement unsent-input autosave, Dialogue settings autosave, streaming persistence, and file draft persistence.
 
-Run automated tests and a real-endpoint demonstration where possible.
+**Step 8 — Frontend Integration**
 
-**Step 7 — Review**
+Add Workspace Settings, Runs, and Files using the existing frontend design.
 
-Check for regressions, unnecessary abstractions, security issues, and incomplete migration.
+**Step 9 — Tests**
 
-**Step 8 — Deliver**
+Run automated tests and all required end-to-end demonstrations.
 
-Provide the implementation, documentation, test results, and working demonstration.
+**Step 10 — Review**
 
-Do not stop after the initial code inspection or design.
+Check for:
 
-Investigate problems through source code and tests before requesting information from the user.
+- Lost or duplicated streaming events.
+- Duplicate LLM execution.
+- Incorrect Run states.
+- Lock leaks.
+- Unsafe Workspace switching.
+- Incomplete file publication.
+- Silent file overwrite.
+- Autosave conflicts.
+- Conversation-history regressions.
+- Unnecessary code complexity.
 
-Report genuine blockers and limitations.
+**Step 11 — Deliver**
+
+Provide the working implementation, tests, documentation, Windows instructions, and known limitations.
+
+Do not stop after planning.
+
+Investigate issues using source code, logs, and tests before asking the user for information.
 
 Do not claim completion when an acceptance criterion remains unverified.
 
@@ -1470,8 +1660,20 @@ Do not claim completion when an acceptance criterion remains unverified.
 
 ## Final Requirement
 
-**The deliverable is the current Chatbot running through a Python backend, with model configuration, conversation history, and dialogue settings managed by Python and persisted as human-readable files.**
+Deliver the existing Silico Chatbox with persistent Runs, independent Dialogue Workspaces, file versioning, Autosave, and a frontend-configurable Workspace Root.
 
-The existing frontend must retain its appearance and functionality, including per-dialogue model selection, all generation parameters, reasoning controls, Undo/Redo, streaming, prompt inspection, and cancellation.
+The backend must operate as a single instance and protect the instance and active Workspace using operating-system-level locks.
 
-The implementation must be simple, maintainable, and ready for later extension with Agent and Skill functionality.
+A user must be able to start LLM generation, close the browser, reopen the application, and continue observing the same Run.
+
+Generated files must remain available as drafts or completed versions. Users must be able to preview, download, compare, and restore versions without losing historical records.
+
+Conversation state, Runs, and Artifacts must remain distinct but linked.
+
+Use the existing Python backend, native Windows environment, and human-readable flat-file storage.
+
+Start with a clean Workspace. **Do not migrate Phase 1 chat history or other historical records.**
+
+Preserve Phase 1 functionality.
+
+**Do not implement Agents, Skills, or Java simulator integration in Phase 2.**
