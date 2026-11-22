@@ -1,1679 +1,1133 @@
-## Persistent Runs, Dialogue Workspaces, File Versioning, and Autosave
+# Phase 3 — Agent Runtime, Capability Management and Memory
 
-### 1. Objective
+## 1. Objective
 
-Extend the completed Phase 1 Chatbox into a persistent task and file workspace.
+Extend the existing web-based LLM Chatbox into a capable, extensible Agent system.
 
-Phase 1 is already implemented and working. Use its existing codebase as the starting point.
+The application already has a Python backend, an HTML/JavaScript frontend, persistent conversations, Runs, Dialogue Workspaces, file versioning, and autosave.
 
-Phase 2 must add five capabilities:
+Build on the existing implementation. Preserve its functionality and user experience.
 
-1. **Workspace Setup:** Configure and change the Workspace Root from the frontend.
-2. **Persistent Runs:** Continue LLM generation after the browser disconnects. Reconnect to the original Run without repeating it.
-3. **Dialogue Workspaces:** Give each Dialogue its own persistent directory containing real files.
-4. **Files Workspace:** Preview, download, compare, and restore generated file versions.
-5. **Autosave:** Automatically preserve unsent input, dialogue settings, streaming output, and file drafts.
+The goal of Phase 3 is to let an Agent perform multi-step tasks using Skills and Tools, manage its working context efficiently, and propose improvements to its own capabilities under explicit user control.
 
-The backend must operate as a **single-instance application**, with operating-system-level locks protecting the backend instance and active Workspace.
+The system must remain easy to understand, operate, inspect, and maintain.
 
-Use the existing Python backend and local filesystem.
+**Use your engineering judgment to design the implementation.** The requirements below describe the intended behaviour and safety boundaries. They do not prescribe a specific class hierarchy, API structure, storage layout, or execution framework.
 
-Start Phase 2 with a new, empty Workspace. No Phase 1 conversation history, files, or other records need to be migrated.
+Prefer simple solutions that fit the existing codebase.
 
-**The deliverable must be a working application with all Phase 1 features preserved.**
+### Main deliverables
 
-Do not implement Agent orchestration, Skills, Java integration, or Alpha Research functionality in Phase 2.
+1. A persistent, single-Agent execution loop.
+2. A Tool Registry and Skill Registry.
+3. A web-based management interface for Skills, Tools, permissions, and approvals.
+4. Frontend management of authorized external folders.
+5. Version tracking for files written to external folders.
+6. Controlled creation and upgrading of reusable Skills and Tools.
+7. Capability version history, rollback, probation, promotion, and permanent deletion.
+8. A restricted last-resort Python execution Skill.
+9. Context-aware LLM execution planning and scheduling.
+10. Conclusion-oriented Agent Memory with summarization and historical recall.
+11. File-reference-based conversation context management.
 
----
+Do not introduce unnecessary infrastructure, a database, Docker, WSL, or a multi-agent orchestration framework.
 
-## 2. Development Principles
+Retain native Windows support.
 
-Follow these rules:
-
-1. Inspect the actual Phase 1 implementation before making changes.
-2. Preserve existing functionality and frontend behaviour.
-3. Reuse existing code, APIs, and storage conventions where practical.
-4. Keep the code simple and readable.
-5. Avoid unnecessary frameworks, abstractions, and dependencies.
-6. Do not introduce microservices or distributed execution.
-7. Use native Windows execution.
-8. Use human-readable files for persistent records.
-9. Do not simulate LLM output, file generation, or task progress.
-10. Do not remove working features to simplify implementation.
-11. Use clear, concise English in the interface. Prefer ASD-STE100-style wording.
-12. Keep authoritative application state in Python.
-13. Use deterministic code for state transitions, versioning, and recovery.
-14. Investigate source code and logs before requesting information from the user.
-15. Do not expand the scope into future phases.
-
-Do not stop after producing an implementation plan.
-
-Proceed with implementation, testing, and delivery.
+Do not implement Java Simulator integration or domain-specific research workflows in this phase.
 
 ---
 
-## 3. Inspect the Existing Application
+## 2. Initial Investigation
 
-Before implementation, inspect:
+Before writing code, inspect the existing application.
 
-- FastAPI application startup and shutdown.
-- Backend model configuration.
-- Existing LLM request execution.
-- Current streaming event protocol.
-- Current Run records and identifiers.
-- Existing cancellation mechanism.
-- Conversation persistence.
-- Dialogue creation, deletion, and renaming.
-- Per-dialogue model selection and generation settings.
-- Conversation Undo, Redo, and regeneration.
-- Existing generated-file parsing.
-- File preview and download behaviour.
-- Current autosave functionality.
-- Existing filesystem layout.
-- Frontend navigation and styling.
-- Automated tests.
-- Windows startup procedure.
+Understand how it currently manages:
 
-Identify what currently happens when:
+- Model configuration and LLM requests.
+- Streaming and reasoning output.
+- Conversation state, Undo/Redo, and regeneration.
+- Persistent Runs and reconnect behaviour.
+- Dialogue Workspaces.
+- Uploaded files.
+- Generated files and Artifact Versions.
+- File modifications and autosave.
+- Backend startup and Workspace locking.
+- Frontend navigation and settings.
+- Existing tests.
 
-1. The browser closes during LLM generation.
-2. The streaming connection is interrupted.
-3. Python terminates unexpectedly.
-4. The same user request is submitted twice.
-5. A response contains several generated files.
-6. A user edits an existing generated file.
-7. Generation ends with incomplete file content.
+Identify reusable components and any necessary changes.
 
-Document the findings briefly.
+Pay particular attention to whether file contents are duplicated in conversation history and whether the backend can continue a Run while the browser is disconnected.
 
-Prepare a concise implementation plan.
-
-Do not rewrite Phase 1 unnecessarily.
-
-**Do not investigate or implement migration of Phase 1 historical records.**
-
----
-
-# PART A — SINGLE BACKEND INSTANCE
-
-## 4. Single-Instance Runtime
-
-Silico must operate as a single-backend-instance application.
-
-Only one backend instance may run for the same application installation and supported Windows user environment.
-
-Multiple browser clients may connect to that backend.
-
-Multiple Dialogues may exist.
-
-Multiple LLM Runs may be managed by the backend, subject to configured concurrency limits.
-
-Do not implement coordination between independent backend processes.
-
-Use one FastAPI application worker.
-
-Do not configure multiple Uvicorn workers.
-
-Do not use an automatic-reload configuration that creates competing application instances.
-
-### 4.1 Backend Instance Identity
-
-Generate a stable Instance ID during initial setup.
-
-Store it outside the Workspace Root.
-
-Suggested location:
-
-```text
-%LOCALAPPDATA%\Silico\
-    instance-config.json
-    backend.lock
-```
-
-Example:
-
-```json
-{
-  "schema_version": 1,
-  "instance_id": "stable-generated-instance-id",
-  "workspace_root": "D:\\Silico\\Workspace"
-}
-```
-
-Use existing configuration conventions when practical.
-
-The Bootstrap Configuration must not depend on the Workspace Root being available.
-
-### 4.2 Instance Lock
-
-Acquire an exclusive operating-system-level lock during backend startup.
-
-Hold the lock for the entire backend process lifetime.
-
-If another backend already holds the lock:
-
-- Do not load or modify application state.
-- Do not start another Run Manager.
-- Report a clear error.
-- Exit safely.
-
-Use a Windows-compatible OS file-locking mechanism, such as `portalocker`.
-
-Do not rely only on file existence, PID records, or timestamps.
-
-The operating system must release the lock when the owning process terminates unexpectedly.
-
-A stale lock file without an active OS lock must not prevent startup.
-
-### 4.3 Lock Lifecycle
-
-Acquire the instance lock before opening persistent application state.
-
-Release it during normal shutdown.
-
-Keep the lock handle alive for the required lifetime.
-
-Use FastAPI lifespan management or a similarly clear lifecycle mechanism.
-
-Avoid locking during module import if that would make testing or development tools unreliable.
-
----
-
-# PART B — WORKSPACE ROOT
-
-## 5. Workspace Root Configuration
-
-Silico must use one active Workspace Root at a time.
-
-The user must be able to configure and change this Root through the frontend.
-
-The Workspace Root is a directory on the computer running the Python backend.
-
-Users must not need to select a directory for each Dialogue.
-
-### 5.1 Initial Setup
-
-On frontend startup, query the backend Workspace configuration.
-
-Suggested endpoint:
-
-`GET /api/workspace/config`
-
-Example response:
-
-```json
-{
-  "configured": false,
-  "instance_id": "instance-id",
-  "workspace_root": null
-}
-```
-
-If no valid Root is configured:
-
-1. Display a Workspace Setup screen.
-2. Explain what the Workspace stores.
-3. Ask the user to enter the Workspace Root path.
-4. Offer to create the directory if it does not exist.
-5. Send the configuration to Python.
-6. Validate and initialize the Workspace.
-7. Open the normal Chatbox after setup succeeds.
-
-Keep health and Workspace Setup APIs available before initialization.
-
-Do not enable persistent Dialogue or Run operations until a valid Workspace is active.
-
-Do not silently select a temporary Workspace.
-
-If the previously configured Root is unavailable, show an error instead of automatically creating a replacement.
-
-### 5.2 Frontend Setup UI
-
-Use the existing frontend design.
-
-Suggested wording:
-
-**Set up your workspace**
-
-"Select a folder on the computer that runs the Silico backend. Silico will store conversations, generated files, and task records in this folder."
-
-Provide:
-
-- Workspace Root path input.
-- Path validation feedback.
-- Create Workspace action.
-- Open Existing Workspace action.
-
-A browser's normal folder picker selects a directory on the browser's computer, which may not be the backend computer.
-
-Do not assume the browser and backend run on the same machine.
-
-A path input field is sufficient for Phase 2.
-
-Do not build an elaborate server-side filesystem browser.
-
-### 5.3 Root Validation
-
-Validate:
-
-- Absolute path.
-- Directory existence.
-- Write permissions.
-- Existing Workspace metadata.
-- Workspace schema compatibility.
-- Lock availability.
-- Invalid or unsafe filesystem locations.
-
-Do not overwrite unrelated files.
-
-If a compatible Workspace already exists, open it.
-
-If an empty directory is selected, allow explicit initialization.
-
-If a directory contains unrelated files, do not automatically treat it as an empty Workspace.
-
-### 5.4 Workspace Identity
-
-Each Workspace Root must have a stable Workspace ID.
-
-Store it in `workspace.json`.
-
-Example:
-
-```json
-{
-  "schema_version": 1,
-  "workspace_id": "stable-workspace-id",
-  "created_at": "2026-11-22T12:00:00Z"
-}
-```
-
-The Workspace ID and Backend Instance ID are different identifiers.
-
-Do not regenerate a Workspace ID when reopening it.
-
----
-
-## 6. Workspace Lock
-
-Every Workspace Root must have an OS-level lock file.
-
-Suggested name:
-
-`.workspace.lock`
-
-Acquire an exclusive operating-system-level lock before normal Workspace operations.
-
-Hold the lock while the Workspace is active.
-
-If the lock cannot be acquired:
-
-- Do not modify Workspace data.
-- Report that the Workspace is in use.
-- Allow the user to select another directory.
-
-Do not rely on the lock file's existence.
-
-Do not automatically delete a lock file because its stored PID appears inactive.
-
-Do not force-unlock a Workspace held by another live process.
-
-Support local filesystem locking.
-
-Do not claim arbitrary network filesystem compatibility without verification.
-
-### 6.1 Purpose of the Two Locks
-
-The Instance Lock prevents two Silico backend processes from running for the same installation.
-
-The Workspace Lock prevents another process from concurrently writing into the active Workspace.
-
-Keep both mechanisms.
-
-Do not introduce a distributed lock service.
-
----
-
-## 7. Workspace Settings and Switching
-
-Add a **Workspace Settings** view to the frontend.
-
-This is separate from the model connection configuration removed in Phase 1.
-
-Do not reintroduce the Model Config tab.
-
-Display:
-
-- Backend Instance ID.
-- Workspace ID.
-- Current Workspace Root.
-- Workspace accessibility and write status.
-- Number of queued and active Runs.
-- Change Workspace action.
-
-Support:
-
-1. Create a new Workspace.
-2. Open an existing compatible Workspace.
-
-Do not automatically copy or migrate data from one Workspace to another.
-
-### 7.1 Safe Switching
-
-A Workspace switch must:
-
-1. Prevent new Run creation and conflicting state mutations during the transition.
-2. Check that no Runs are queued or active.
-3. Reject the operation if queued or active Runs exist.
-4. Validate the target directory.
-5. Acquire the target Workspace Lock.
-6. Validate target metadata and storage.
-7. Prepare the target Workspace.
-8. Atomically update the Bootstrap Configuration.
-9. Activate the target Workspace.
-10. Release the previous Workspace Lock.
-11. Refresh frontend state.
-
-If switching fails, preserve the previous Workspace.
-
-Do not release the previous Workspace Lock before the replacement is ready.
-
-Handle failures and process termination during switching.
-
-On restart, open the Root specified by the durable Bootstrap Configuration.
-
-### 7.2 Stale Browser Requests
-
-A browser may still display the previous Workspace after another browser switches Roots.
-
-Use Workspace identity and revision checks where needed.
-
-Reject stale state-changing requests.
-
-Do not allow a delayed request to modify an unintended Workspace.
-
-### 7.3 Administrative Access
-
-Changing Workspace Root is an administrative operation.
-
-Default to a backend bound to the local machine.
-
-If remote browser access is supported, protect Workspace configuration APIs with appropriate authentication and authorization.
-
-Do not permit arbitrary unauthenticated remote users to select server filesystem paths.
-
----
-
-# PART C — DIALOGUE WORKSPACES
-
-## 8. One Workspace per Dialogue
-
-Each Dialogue must have its own persistent subdirectory.
-
-Create it automatically.
-
-Use the stable Dialogue ID as the directory identifier.
-
-Do not use the Dialogue title as a directory name.
-
-A Dialogue Workspace belongs to the Dialogue, not to a browser session.
-
-Closing or refreshing the browser must not create another Workspace.
-
-Reopening a Dialogue must restore its original Workspace.
-
-### 8.1 Recommended Directory Layout
-
-```text
-WorkspaceRoot/
-│
-├── workspace.json
-├── .workspace.lock
-│
-├── dialogues/
-│   ├── dlg_001/
-│   │   ├── dialogue.json
-│   │   ├── workspace.json
-│   │   ├── input_draft.json
-│   │   └── workspace/
-│   │       ├── alpha.py
-│   │       └── analysis.md
-│   │
-│   └── dlg_002/
-│       ├── dialogue.json
-│       ├── workspace.json
-│       ├── input_draft.json
-│       └── workspace/
-│
-├── runs/
-│   ├── run_001/
-│   │   ├── run.json
-│   │   ├── request.json
-│   │   ├── events.jsonl
-│   │   └── drafts/
-│   └── run_002/
-│
-└── artifacts/
-    └── artifact_001/
-        ├── manifest.json
-        └── versions/
-            ├── v001/
-            └── v002/
-```
-
-This layout is a suggestion.
-
-Adapt it to existing code conventions.
-
-No Phase 1 historical data needs to be migrated into it.
-
-### 8.2 Real Working Files
-
-Each Dialogue's `workspace/` directory must contain actual files.
-
-These files must be accessible using Windows Explorer and ordinary text editors.
-
-They are the current working copies, not immutable historical versions.
-
-Published historical versions are stored in the shared Artifact Store.
-
-Do not use symbolic links as the default implementation.
-
-### 8.3 Workspace Manifest
-
-Maintain a manifest for the logical files in each Dialogue.
-
-Example:
-
-```json
-{
-  "dialogue_id": "dlg_001",
-  "revision": 4,
-  "files": {
-    "alpha.py": {
-      "artifact_id": "artifact_001",
-      "current_version_id": "v002",
-      "content_sha256": "..."
-    }
-  }
-}
-```
-
-The manifest records the current published version associated with each working file.
-
-If a file was modified outside the application, detect that its content differs from the recorded hash.
-
-Do not silently overwrite externally modified files.
-
-### 8.4 Workspace Isolation
-
-Different Dialogues may contain identical filenames.
-
-One Dialogue must not modify another Dialogue's Workspace implicitly.
-
-All Dialogues may share the backend Artifact Store for immutable versions.
-
-Do not implement automatic cross-Dialogue file sharing in Phase 2.
-
-### 8.5 Dialogue Deletion
-
-Do not silently destroy historical Runs or Artifact Versions when a Dialogue is removed.
-
-Use a simple recoverable deletion or archive policy where appropriate.
-
-Document the behaviour.
-
-Do not implement complex retention management.
-
----
-
-# PART D — PERSISTENT RUNS
-
-## 9. Run Manager
-
-A Run represents one execution of an LLM generation request.
-
-Each Run must have a unique stable identifier.
-
-The Run Manager must execute in Python.
-
-A Run must not depend on an open browser connection.
-
-### 9.1 Run States
-
-Support:
-
-| State | Meaning |
-|---|---|
-| `queued` | Accepted and waiting |
-| `running` | Executing |
-| `completed` | Finished successfully |
-| `failed` | Execution failed |
-| `cancelled` | Explicit cancellation completed |
-| `interrupted` | Execution stopped unexpectedly |
-
-Do not treat browser disconnection as cancellation.
-
-Do not assume the HTTP stream closing means successful model completion.
-
-Record the provider finish reason separately.
-
-### 9.2 Run Creation
-
-When the user sends a message:
-
-1. Validate the Dialogue and its current revision.
-2. Capture the effective conversation context.
-3. Capture the selected model and generation parameters.
-4. Capture the active Workspace identity.
-5. Create a persistent Run record.
-6. Save the effective request without credentials.
-7. Queue the Run.
-8. Return its Run ID.
-9. Execute it independently of the browser connection.
-
-Use an idempotency key.
-
-If an identical request is retried with the same key, return the original Run ID.
-
-Reject reuse of a key with a different payload.
-
-Do not execute duplicate LLM requests because of network retries.
-
-### 9.3 Run Record
-
-Store at least:
-
-```json
-{
-  "run_id": "run_001",
-  "workspace_id": "workspace-id",
-  "dialogue_id": "dlg_001",
-  "run_type": "llm_generation",
-  "status": "running",
-  "created_at": "2026-11-22T12:00:00Z",
-  "started_at": "2026-11-22T12:00:01Z",
-  "completed_at": null,
-  "model_profile_id": "coder",
-  "dialogue_revision": 12,
-  "last_event_seq": 35,
-  "retry_of": null
-}
-```
-
-Keep the request snapshot immutable.
-
-Changing Dialogue settings must not modify a running request.
-
-### 9.4 Execution
-
-Use a small application-managed Run Manager.
-
-It must:
-
-- Start queued requests.
-- Track active requests.
-- Enforce concurrency limits.
-- Handle explicit cancellation.
-- Persist streaming events.
-- Save generated file drafts.
-- Finalize Run outcomes.
-- Release resources.
-
-A single asynchronous worker is sufficient initially.
-
-Do not introduce Redis, RQ, Celery, or a database.
-
-Do not create unmanaged threads for each HTTP request.
-
----
-
-## 10. Browser Disconnect and Reconnection
-
-### 10.1 Browser Disconnect
-
-Closing the browser or disconnecting the streaming connection must not cancel the Run.
-
-The backend must continue:
-
-- Upstream LLM generation.
-- Event persistence.
-- Draft file persistence.
-- Run-state management.
-
-Only an explicit Stop action should request cancellation.
-
-### 10.2 Reconnection
-
-When the user reconnects:
-
-1. Retrieve the original Run status.
-2. Retrieve persisted events.
-3. Restore previously generated content.
-4. Continue receiving new events if the Run is active.
-
-Do not start another LLM request.
-
-Do not regenerate the previous output.
-
-### 10.3 Event Replay
-
-Persist streaming events in JSONL.
-
-Example:
-
-```json
-{
-  "schema_version": 1,
-  "run_id": "run_001",
-  "seq": 36,
-  "timestamp": "2026-11-22T12:00:05Z",
-  "type": "message.delta",
-  "payload": {
-    "text": "Generated text..."
-  }
-}
-```
-
-Use monotonically increasing sequence numbers per Run.
-
-Provide an endpoint to retrieve events after a specified sequence.
-
-Example:
-
-`GET /api/runs/{run_id}/events?after_seq=35`
-
-Support historical replay followed by live events.
-
-Avoid gaps between replay and live streaming.
-
-The frontend must suppress duplicate sequence numbers.
-
-### 10.4 Persist Before Broadcast
-
-Persist events before broadcasting them.
-
-Small bounded batches are acceptable.
-
-Do not require a disk write for each token.
-
-Only committed events may be described as durably saved.
-
-The event log must be sufficient to reconstruct streamed output after reconnecting.
-
-### 10.5 Cancellation
-
-Explicit Stop must:
-
-1. Identify the active Run.
-2. Request cancellation.
-3. Cancel or close the upstream LLM request where supported.
-4. Preserve received output.
-5. Preserve draft files.
-6. Record the correct terminal state.
-7. Allow another request.
-
-Handle cancellation/completion races.
-
----
-
-## 11. Backend Restart and Recovery
-
-An unexpected backend termination may stop active LLM generation.
-
-Do not attempt exact-token resumption in Phase 2.
-
-### 11.1 Startup Reconciliation
-
-On startup:
-
-1. Acquire the Instance Lock.
-2. Read the Bootstrap Configuration.
-3. Acquire the Workspace Lock.
-4. Load the Workspace.
-5. Inspect persisted Run records.
-6. Identify abandoned active Runs.
-7. Mark them `interrupted`.
-8. Preserve their events and drafts.
-9. Begin accepting new requests.
-
-Do not leave abandoned Runs indefinitely marked `running`.
-
-Do not automatically restart interrupted Runs.
-
-### 11.2 Retry
-
-Allow retry of failed or interrupted Runs.
-
-A retry must:
-
-- Create a new Run ID.
-- Reference the original Run.
-- Preserve the original request snapshot unless the user explicitly changes it.
-- Preserve the original events and artifacts.
-- Avoid duplicating conversation messages.
-
-If active Dialogue history has changed, do not silently overwrite it.
-
-Do not describe restarting generation as continuing from the interrupted token.
-
----
-
-# PART E — FILES AND VERSIONING
-
-## 12. File Lifecycle
-
-Generated files have three distinct forms:
-
-**Run Draft**
-
-Incomplete or in-progress generated content.
-
-**Published Artifact Version**
-
-A structurally complete, immutable file version.
-
-**Dialogue Working File**
-
-The current editable file in a Dialogue Workspace.
-
-Do not combine these into one mutable record.
-
-### 12.1 Drafts
-
-During generation:
-
-- Save drafts under the generating Run.
-- Update drafts incrementally.
-- Make them available for preview.
-- Mark them as incomplete until completion is validated.
-- Preserve them after cancellation or interruption.
-
-Inspect and reuse the existing file-generation format.
-
-Do not assume the model always follows the expected file format.
-
-Retain the original model output.
-
-If file boundaries are ambiguous, preserve the content as a draft instead of automatically publishing it.
-
-### 12.2 Publication
-
-When file generation finishes:
-
-1. Validate its logical path.
-2. Validate file boundaries.
-3. Confirm the relevant Run outcome permits publication.
-4. Save immutable content.
-5. Calculate its SHA-256 hash.
-6. Write version metadata.
-7. Finalize publication.
-8. Update the Dialogue Working File when safe.
-
-Do not overwrite existing versions.
-
-Structural completion does not imply executable-code correctness.
-
-Do not introduce code compilation in Phase 2.
-
-### 12.3 Artifact Identity
-
-Use stable Artifact and Version IDs.
-
-Store:
-
-- Artifact ID.
-- Version ID.
-- Dialogue ID.
-- Logical filename.
-- Generating Run ID.
-- Parent Version ID.
-- Creation time.
-- Content hash.
-- File size.
-- Publication status.
-
-### 12.4 Current Working Files
-
-After publication, update the real working file when safe.
-
-Before replacing an existing file, verify:
-
-- Workspace revision.
-- Current version pointer.
-- Current file content hash.
-
-If the user or another process changed the file after the Run started, preserve both contents.
-
-Do not silently overwrite the user's changes.
-
-Save the generated content as another version and report the conflict.
-
-### 12.5 Compare Versions
-
-Provide a working version comparison view.
-
-Users must be able to choose two versions and inspect their differences.
-
-A line-based unified diff is sufficient for text files.
-
-Use readable formatting.
-
-### 12.6 Restore Versions
-
-Restoration must:
-
-1. Load a selected historical version.
-2. Create a new immutable version with the restored content.
-3. Record the source version.
-4. Update the current working file.
-5. Update the Workspace manifest.
-6. Preserve all previous versions.
-
-Restoration is an explicit user action.
-
-It must not change the conversation history.
-
-### 12.7 Download
-
-Allow users to download generated files.
-
-Preserve logical filenames.
-
-Validate paths.
-
-Display potentially executable content safely.
-
-Do not execute generated HTML or JavaScript in a privileged application context.
-
----
-
-## 13. Files Workspace UI
-
-Add a **Files** area to the frontend.
-
-Display:
-
-- Current Dialogue files.
-- Draft files.
-- Published versions.
-- Generation status.
-- File timestamps.
-- Associated Runs.
-
-Provide working actions for:
-
-- Preview.
-- Download.
-- View versions.
-- Compare.
-- Restore.
-- Open generating Run.
-
-Use the existing frontend layout and styling.
-
-Reuse the current code renderer where practical.
-
-Large text files must remain scrollable.
-
----
-
-# PART F — AUTOSAVE
-
-## 14. Autosave
-
-Implement autosave for all relevant working state.
-
-The backend must remain authoritative.
-
-### 14.1 Conversation Changes
-
-Persist accepted conversation changes immediately.
-
-This includes:
-
-- Sent messages.
-- Completed response commits.
-- Undo.
-- Redo.
-- Regeneration.
-- Dialogue rename.
-- Dialogue deletion or archival.
-
-Preserve Phase 1 semantics.
-
-### 14.2 Dialogue Settings
-
-Autosave:
-
-- Model selection.
-- Temperature.
-- Max Tokens.
-- Top P.
-- Top K.
-- Min P.
-- Repetition Penalty.
-- Presence Penalty.
-- Reasoning Effort.
-- Other existing Dialogue settings.
-
-Use a short debounce for rapid changes.
-
-Validate changes in Python.
-
-Do not show a failed save as successful.
-
-### 14.3 Unsent Input
-
-Autosave the unsent message draft for each Dialogue.
-
-Use approximately 500–800 ms debounce.
-
-Flush pending changes when switching Dialogues where possible.
-
-Restore the draft when reopening the Dialogue.
-
-If the backend is unavailable, retain unsaved input in the frontend and indicate that it has not been saved.
-
-Do not rely only on browser unload events.
-
-### 14.4 Streaming Output
-
-Persist streaming events continuously in bounded batches.
-
-Commit events before broadcasting them.
-
-Do not rewrite large conversation records per token.
-
-### 14.5 Generated File Drafts
-
-Save drafts incrementally during generation.
-
-Keep incomplete drafts after interruption.
-
-Do not publish incomplete files automatically.
-
-### 14.6 Browser File Editing
-
-If the current frontend supports editing files, preserve it.
-
-Autosave working-file changes using a short debounce.
-
-Do not create an immutable version for each keystroke.
-
-Use revisions or content hashes to detect conflicts.
-
-### 14.7 Save Feedback
-
-Use concise status text where necessary:
-
-- Saving
-- Saved
-- Not saved
-- Save failed
-
-Only show Saved after backend confirmation.
-
----
-
-# PART G — RUNS WORKSPACE
-
-## 15. Runs UI
-
-Add a **Runs** area to the existing frontend.
-
-### 15.1 Run List
-
-Display:
-
-- Run ID.
-- Dialogue title.
-- Selected model.
-- Request summary.
-- Start time.
-- Status.
-- Completion time, if available.
-
-Support browsing previous Runs.
-
-### 15.2 Run Details
-
-Display:
-
-- Run state.
-- Dialogue association.
-- Model settings snapshot.
-- Saved request.
-- Streamed text.
-- Reasoning content where available.
-- Execution events.
-- Errors.
-- Generated files.
-
-Reuse existing UI components.
-
-### 15.3 Run Actions
-
-Provide:
-
-- Open.
-- Stop.
-- Retry.
-- Open Files.
-
-Only display actions valid for the current Run state.
-
-Do not invent progress percentages or remaining-time estimates.
-
----
-
-# PART H — STATE OWNERSHIP
-
-## 16. Conversation, Run, and Artifact State
-
-Keep these separate.
-
-**Conversation** determines the active LLM context.
-
-**Run** records a particular execution and its outputs.
-
-**Artifact** records a logical file and its versions.
-
-One Conversation can have many Runs.
-
-One Run can produce multiple Artifact Versions.
-
-### 16.1 Undo and Redo
-
-Undo/Redo changes the active conversation context.
-
-It must not delete Runs.
-
-It must not delete Artifact Versions.
-
-It must not automatically restore an old working file.
-
-File restoration is independent.
-
-### 16.2 Completion and Reconnection
-
-Reconnecting must not duplicate assistant messages.
-
-Use stable message and Run identifiers.
-
-If the active Dialogue revision changed during a Run, preserve the Run result but do not overwrite newer conversation state.
-
-### 16.3 Multiple Browser Windows
-
-Allow multiple browser windows to connect to the same backend.
-
-Use revisions to reject stale modifications.
-
-Do not implement a collaborative text editor.
-
----
-
-# PART I — FILESYSTEM SAFETY
-
-## 17. Filesystem Integrity
-
-Use JSON, JSONL, and ordinary files.
-
-Do not introduce a database.
-
-### 17.1 Atomic Writes
-
-Use atomic replacement for mutable JSON records.
-
-Write temporary files on the same filesystem.
-
-Publish new content only after successful writing and validation.
-
-For multi-file operations, define a clear commit point and recovery behaviour.
-
-### 17.2 Event Logs
-
-Use append-only JSONL.
-
-Detect incomplete trailing entries.
-
-Preserve event ordering and unique sequence numbers.
-
-### 17.3 Artifact Versions
-
-Published versions must be immutable.
-
-Use content hashes for integrity checks.
-
-Do not update a Workspace manifest before its referenced Artifact Version is ready.
-
-### 17.4 Path Safety
-
-Prevent:
-
-- Directory traversal.
-- Absolute logical artifact paths.
-- Unsafe symbolic-link and reparse-point traversal.
-- Access outside the configured Workspace.
-- Arbitrary filesystem paths supplied by LLM output.
-
-The backend resolves all paths.
-
-### 17.5 Resource Limits
-
-Provide configurable limits for:
-
-- Generated file size.
-- Files per Run.
-- Total output per Run.
-- Active Runs.
-
-Do not automatically delete historical Runs or Artifact Versions.
-
-Document backup and disk usage.
-
----
-
-# PART J — API
-
-## 18. HTTP API
-
-Extend the existing FastAPI application.
-
-Reuse Phase 1 endpoints where practical.
-
-### Workspace
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/workspace/config` | Read Workspace configuration |
-| `POST /api/workspace/create` | Create a new Workspace |
-| `POST /api/workspace/open` | Open an existing Workspace |
-| `POST /api/workspace/switch` | Change active Workspace |
-
-### Runs
-
-| Endpoint | Purpose |
-|---|---|
-| `POST /api/runs` | Create and queue a Run |
-| `GET /api/runs` | List Runs |
-| `GET /api/runs/{id}` | Get Run details |
-| `GET /api/runs/{id}/events` | Replay and follow events |
-| `POST /api/runs/{id}/cancel` | Cancel a Run |
-| `POST /api/runs/{id}/retry` | Retry a Run |
-| `GET /api/runs/{id}/request` | Inspect the request |
-
-### Artifacts
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /api/artifacts` | List Artifacts |
-| `GET /api/artifacts/{id}` | Get Artifact metadata |
-| `GET /api/artifacts/{id}/versions` | List versions |
-| `GET /api/artifacts/{id}/versions/{version}` | Read version |
-| `GET /api/artifacts/{id}/diff` | Compare versions |
-| `POST /api/artifacts/{id}/restore` | Restore old version |
-| `GET /api/artifacts/{id}/download` | Download file |
-
-Add draft-preview and input-autosave endpoints as needed.
-
-Names may be adapted to existing conventions.
-
-Document the actual implemented contract.
-
-Do not expose internal filesystem paths through API parameters.
-
----
-
-# PART K — TESTING
-
-## 19. Automated Tests
-
-Implement tests using existing project conventions.
-
-Use a deterministic local mock LLM for streaming, cancellation, and interruption tests.
-
-### 19.1 Instance Locking
-
-Verify:
-
-- The first backend acquires the Instance Lock.
-- A second backend cannot acquire it concurrently.
-- Normal shutdown releases it.
-- Process termination releases it.
-- A stale lock file does not block startup.
-- A second process cannot acquire an active Workspace Lock.
-- Multiple browser clients can connect to the same backend.
-
-### 19.2 Workspace Setup
-
-Verify:
-
-- No Root triggers the setup screen.
-- A new Root can be created.
-- The correct directory structure is initialized.
-- Root configuration survives restart.
-- Existing Phase 2 Workspace data is restored.
-- Each Dialogue gets an independent subdirectory.
-- Two Dialogues can contain identical filenames.
-
-No Phase 1 historical data migration test is required.
-
-### 19.3 Workspace Switching
-
-Verify:
-
-- Switching between compatible Workspaces works.
-- Old Workspace contents remain intact.
-- Switching to a locked Workspace is rejected.
-- Switching during queued or active Runs is rejected.
-- Failed switching preserves the previous Workspace.
-- Stale browser requests cannot modify the newly activated Workspace.
-- Restart after a failed or interrupted switch produces a consistent active Workspace.
-
-### 19.4 Runs
-
-Test:
-
-- Creation.
-- Queueing.
-- Execution.
-- Completion.
-- Failure.
-- Cancellation.
-- Interruption.
-- Retry.
-- Request snapshot immutability.
-- Idempotency.
-- Accurate final state.
-
-### 19.5 Browser Disconnect
-
-Test:
-
-1. Start slow generation.
-2. Disconnect the frontend.
-3. Confirm generation continues.
-4. Reconnect using the original Run ID.
-5. Replay events.
-6. Confirm no missing or duplicated output.
-7. Confirm no second model request occurred.
-
-### 19.6 Backend Restart
-
-Test:
-
-1. Start a slow Run.
-2. Terminate Python unexpectedly.
-3. Restart Python.
-4. Confirm the Run becomes `interrupted`.
-5. Confirm partial output is retained.
-6. Confirm drafts are retained.
-7. Retry the Run.
-8. Confirm original and retry records remain separate.
-
-### 19.7 Files
-
-Test:
-
-- Single-file generation.
-- Multiple-file generation.
-- Draft preview.
-- Completed publication.
-- Interrupted draft retention.
-- Invalid file boundaries.
-- Immutable versions.
-- Version diff.
-- Restore as a new version.
-- Content hashes.
-- Working-file conflicts.
-- Invalid path rejection.
-
-### 19.8 Autosave
-
-Test:
-
-- Unsent input persistence.
-- Input restoration after refresh.
-- Settings persistence.
-- Rapid successive updates.
-- Save failures.
-- Dialogue switching with pending saves.
-- Streaming persistence.
-- Draft persistence.
-- Conflicting browser updates.
-
-### 19.9 Conversation Integration
-
-Verify:
-
-- Per-dialogue model selection still works.
-- All existing generation parameters remain available.
-- Undo and Redo still work.
-- Regeneration still works.
-- Runs remain after Undo.
-- Artifacts remain after Undo.
-- Reconnection does not duplicate assistant messages.
-- Cancelled and interrupted Runs do not corrupt active history.
-
----
-
-## 20. Required End-to-End Demonstrations
-
-Demonstrate these scenarios in the actual application.
-
-### Scenario A — First-Time Setup
-
-1. Start without a configured Workspace Root.
-2. Open the frontend.
-3. Confirm Workspace Setup appears.
-4. Create a new Workspace.
-5. Create two Dialogues.
-6. Confirm each receives an independent directory.
-7. Restart the backend.
-8. Confirm the Root and new Dialogues are restored.
-
-### Scenario B — Background Generation
-
-1. Start a generation that produces at least three files.
-2. Confirm output streams incrementally.
-3. Confirm draft files are saved.
-4. Close the browser during generation.
-5. Keep the backend running.
-6. Reopen the application.
-7. Open the original Run.
-8. Confirm it continued.
-9. Confirm no duplicate request occurred.
-10. Let the Run complete.
-11. Preview and download generated files.
-
-### Scenario C — File Versions
-
-1. Generate a file.
-2. Generate a revised version.
-3. Compare versions.
-4. Restore an earlier version.
-5. Confirm restoration creates a new version.
-6. Confirm earlier versions remain unchanged.
-7. Inspect the real working file using Windows Explorer.
-
-### Scenario D — Autosave
-
-1. Enter a long unsent message.
-2. Allow autosave to complete.
-3. Refresh the browser.
-4. Confirm the draft is restored.
-5. Change the Dialogue model and parameters.
-6. Switch Dialogue.
-7. Return and confirm settings are restored.
-
-### Scenario E — Workspace Switching
-
-1. Open a Workspace containing new Phase 2 records.
-2. Create another Workspace.
-3. Switch to it.
-4. Confirm it has independent records.
-5. Switch back.
-6. Confirm original records remain.
-7. Start a long Run.
-8. Attempt to switch.
-9. Confirm switching is rejected while the Run is active.
-
-### Scenario F — Locking and Recovery
-
-1. Start the backend.
-2. Attempt to start another instance.
-3. Confirm the second instance exits.
-4. Start a Run.
-5. Terminate the backend unexpectedly.
-6. Restart it.
-7. Confirm locks can be reacquired.
-8. Confirm the Run is marked interrupted.
-9. Confirm partial output remains available.
-10. Retry without overwriting the original Run.
-
-### Scenario G — Conversation Undo
-
-1. Generate an answer containing files.
-2. Undo the conversation turn.
-3. Confirm the active conversation changes.
-4. Confirm Runs and file versions remain.
-5. Redo the turn.
-6. Confirm Phase 1 behaviour is preserved.
-
-Use a deterministic slow mock LLM for reliable interruption tests.
-
-Also test against a real configured LLM endpoint when available.
-
-Report mock and real-endpoint results separately.
-
----
-
-# PART L — SCOPE AND DELIVERY
-
-## 21. Scope Exclusions
-
-Do not implement:
-
-- Phase 1 historical data migration.
-- Legacy chat history import.
-- Workspace migration or automatic copying between Roots.
-- Agent planning.
-- Agent orchestration.
-- Tool Calling.
-- Skills.
-- MCP.
-- RAG.
-- Java source indexing.
-- Git source synchronization.
-- Java simulator integration.
-- Java compilation.
-- Python/Java equivalence testing.
-- Backtesting.
-- Alpha research loops.
-- Alpha Bank.
-- Compound Library.
-- Distributed task execution.
-- Multiple Silico backend instances.
-- Database persistence.
-- Docker or WSL requirements.
-
-Do not create compatibility code solely for historical Phase 1 data.
-
-Keep the implementation focused on working Phase 2 capabilities.
-
----
-
-## 22. Required Deliverables
-
-Provide:
-
-**A. Implementation Summary**
-
-Describe the completed Runs, Files, Workspace, Autosave, and locking functionality.
-
-**B. Architecture**
-
-Explain Backend Instance ownership, Workspace ownership, execution, event persistence, and Artifact Version management.
-
-**C. Filesystem Layout**
-
-Document persistent directories and formats.
-
-**D. API Contract**
-
-Document added or changed endpoints, schemas, streaming events, and error handling.
-
-**E. Locking and Recovery**
-
-Describe the OS locking mechanism, safe switching, shutdown, and restart behaviour.
-
-**F. Autosave**
-
-Document save triggers, debounce, backend confirmation, and conflict detection.
-
-**G. Test Report**
-
-Provide the executed tests and results. Distinguish mock-model tests from real-model tests.
-
-**H. Windows Instructions**
-
-Provide exact PowerShell commands to:
-
-1. Install dependencies.
-2. Start the backend.
-3. Open the frontend.
-4. Run tests.
-5. Inspect saved Workspace files.
-6. Back up a Workspace.
-7. Restore a Workspace backup.
-8. Restart after interruption.
-
-**I. Working Demonstration**
-
-Demonstrate all seven required end-to-end scenarios.
-
-**J. Known Limitations**
-
-Identify incomplete functionality or unverified behaviour clearly.
-
-**K. Phase 3 Readiness**
-
-Briefly explain how the Run Manager and Files Workspace can support future tool execution, Agents, Skills, and Java source investigation.
-
-Do not implement Phase 3.
-
----
-
-## 23. Acceptance Criteria
-
-Phase 2 is complete only when:
-
-- [ ] Only one backend instance can run for the installation.
-- [ ] The Instance Lock uses operating-system-level locking.
-- [ ] The active Workspace Root uses operating-system-level locking.
-- [ ] Backend crashes do not leave permanently blocking stale locks.
-- [ ] The frontend requests setup when no valid Workspace Root exists.
-- [ ] Workspace Root can be configured and changed through the frontend.
-- [ ] Workspace switching is rejected while Runs are queued or active.
-- [ ] Failed Workspace switching preserves the previous Workspace.
-- [ ] Each Dialogue has a persistent directory with real files.
-- [ ] Different Dialogues can contain identical filenames without interference.
-- [ ] Runs continue after browser disconnection.
-- [ ] Reconnection uses the original Run ID.
-- [ ] Events can be replayed without duplication.
-- [ ] Explicit Stop cancels generation where supported.
-- [ ] Backend restart identifies interrupted Runs.
-- [ ] Interrupted Runs can be retried safely.
-- [ ] The Runs interface works.
-- [ ] The Files interface works.
-- [ ] Generated drafts are saved incrementally.
-- [ ] Completed files are published as immutable versions.
-- [ ] Working files are updated safely.
-- [ ] File versions can be compared.
-- [ ] Older versions can be restored as new versions.
-- [ ] Unsent messages are autosaved and restored.
-- [ ] Dialogue settings are autosaved.
-- [ ] Streaming events are persisted.
-- [ ] Concurrent edits do not silently overwrite newer work.
-- [ ] Conversation Undo/Redo remains functional.
-- [ ] Undo does not delete historical Runs or Artifacts.
-- [ ] All existing Phase 1 model controls remain functional.
-- [ ] Backend model credentials remain backend-only.
-- [ ] Storage uses readable flat files.
-- [ ] No database, Docker, or distributed worker is required.
-- [ ] Automated tests pass.
-- [ ] End-to-end demonstrations are completed.
-
-**No Phase 1 historical conversation data needs to be migrated or preserved inside the new Workspace.**
-
-Do not mark an acceptance criterion complete without evidence.
-
----
-
-## 24. Execution Instructions
-
-Proceed in this order.
-
-**Step 1 — Inspect**
-
-Study the completed Phase 1 application and document the existing implementation.
-
-**Step 2 — Plan**
-
-Prepare a concise implementation plan based on the actual code.
-
-**Step 3 — Instance and Workspace Management**
-
-Implement Bootstrap Configuration, Instance Lock, Workspace Lock, initial setup, and safe switching.
-
-**Step 4 — Dialogue Workspaces**
-
-Implement automatic Dialogue directories, real working files, and Workspace manifests.
-
-**Step 5 — Persistent Runs**
-
-Decouple LLM execution from browser connections. Implement Run persistence, event replay, cancellation, and restart recovery.
-
-**Step 6 — File Management**
-
-Implement drafts, immutable versions, previews, downloads, comparison, restoration, and safe working-file synchronization.
-
-**Step 7 — Autosave**
-
-Implement unsent-input autosave, Dialogue settings autosave, streaming persistence, and file draft persistence.
-
-**Step 8 — Frontend Integration**
-
-Add Workspace Settings, Runs, and Files using the existing frontend design.
-
-**Step 9 — Tests**
-
-Run automated tests and all required end-to-end demonstrations.
-
-**Step 10 — Review**
-
-Check for:
-
-- Lost or duplicated streaming events.
-- Duplicate LLM execution.
-- Incorrect Run states.
-- Lock leaks.
-- Unsafe Workspace switching.
-- Incomplete file publication.
-- Silent file overwrite.
-- Autosave conflicts.
-- Conversation-history regressions.
-- Unnecessary code complexity.
-
-**Step 11 — Deliver**
-
-Provide the working implementation, tests, documentation, Windows instructions, and known limitations.
+Prepare a concise implementation plan, then implement it.
 
 Do not stop after planning.
 
-Investigate issues using source code, logs, and tests before asking the user for information.
+---
 
-Do not claim completion when an acceptance criterion remains unverified.
+# PART A — AGENT RUNTIME
+
+## 3. Single-Agent Execution
+
+Implement a reliable Agent loop that can:
+
+- Understand a user's task.
+- Plan the required operations.
+- Select relevant Skills and Tools.
+- Execute multiple steps.
+- Inspect Tool results.
+- Decide what to do next.
+- Request user authorization when required.
+- Produce a final response and associated files.
+
+Use native structured Tool Calling when supported by the configured model.
+
+Validate Tool names and arguments before execution.
+
+Do not interpret arbitrary LLM text as executable Tool requests.
+
+Keep execution bounded with reasonable limits on model calls, Tool calls, retries, time, and resources.
+
+The Agent should stop, ask for approval, or report a limitation rather than continue indefinitely.
+
+### Persistent execution
+
+Integrate Agent execution with the existing Run Manager.
+
+Record LLM calls, Tool calls, selected Skills, execution results, errors, approvals, and generated Artifacts.
+
+The frontend must show Agent activity as it happens.
+
+Closing the browser must not terminate the Run.
+
+The user must be able to reconnect and inspect the same Run without triggering duplicate execution.
+
+Approval requests must remain available after browser disconnection and backend restart.
+
+Avoid repeating side-effecting operations during recovery.
 
 ---
 
-## Final Requirement
+# PART B — CAPABILITY RESOLUTION POLICY
 
-Deliver the existing Silico Chatbox with persistent Runs, independent Dialogue Workspaces, file versioning, Autosave, and a frontend-configurable Workspace Root.
+## 4. How the Agent Chooses Its Capabilities
 
-The backend must operate as a single instance and protect the instance and active Workspace using operating-system-level locks.
+The Agent must follow this order when determining how to complete an operation.
 
-A user must be able to start LLM generation, close the browser, reopen the application, and continue observing the same Run.
+### Priority 1 — Reuse Existing Capabilities
 
-Generated files must remain available as drafts or completed versions. Users must be able to preview, download, compare, and restore versions without losing historical records.
+First determine whether the task can be completed by:
 
-Conversation state, Runs, and Artifacts must remain distinct but linked.
+- An existing Tool.
+- An existing Skill.
+- A sequence of existing Tools.
+- A combination of existing Skills and Tools.
 
-Use the existing Python backend, native Windows environment, and human-readable flat-file storage.
+Prefer composing available capabilities where practical.
 
-Start with a clean Workspace. **Do not migrate Phase 1 chat history or other historical records.**
+### Priority 2 — Upgrade Existing Capabilities
 
-Preserve Phase 1 functionality.
+If the existing capabilities are insufficient, determine whether upgrading an existing Tool or Skill would make the task possible.
 
-**Do not implement Agents, Skills, or Java simulator integration in Phase 2.**
+For example, an existing Tool might need a new parameter, an additional supported operation, or improved handling of a particular input.
+
+Prefer an appropriate upgrade over creating a redundant capability.
+
+### Priority 3 — Create Reusable Capabilities
+
+If reuse and upgrading are unsuitable, consider creating a new Skill or Tool, or a small set of complementary Skills and Tools.
+
+**Newly created Skills and Tools must be reusable.**
+
+They must serve a reasonably defined class of tasks, with useful input parameters, documented behaviour, and appropriate error handling.
+
+Do not create a permanent capability solely to execute one isolated operation.
+
+### Priority 4 — `py_run_code`
+
+If the required operation is one-time, highly specific, or too specialized to justify a reusable capability, consider the restricted `py_run_code` Skill.
+
+It is the last resort.
+
+The Agent must explain why existing capabilities, upgrades, and new reusable capabilities are unsuitable.
+
+### Decision records
+
+When the Agent proposes an upgrade, creation, or last-resort execution, record the alternatives it evaluated and why it selected that approach.
+
+Avoid unnecessary lengthy analysis when an existing Tool clearly solves the task.
+
+This priority is an execution-planning policy, not an authorization mechanism. Every operation remains subject to its security requirements.
+
+---
+
+# PART C — SKILLS AND TOOLS
+
+## 5. Tool Registry
+
+Implement a Tool Registry that lets the Agent discover and execute available operations.
+
+Each Tool should have a clear purpose, input contract, version, permissions, security classification, and execution implementation.
+
+Start with practical file operations such as:
+
+- List directories.
+- Search filenames and file contents.
+- Read files and selected ranges.
+- Inspect file metadata.
+- Read historical Artifact Versions.
+- Write files.
+- Compare files.
+
+Reuse existing file management code where possible.
+
+Do not expose unrestricted filesystem or shell access through ordinary Tools.
+
+All Tool execution must pass through backend validation and authorization.
+
+## 6. Skill Registry
+
+Implement reusable Skills using a straightforward format, preferably compatible with `SKILL.md` and supporting files.
+
+Skills should be discoverable by their purpose.
+
+Load relevant Skill instructions when needed rather than including every Skill in every LLM request.
+
+A Skill may use multiple Tools.
+
+A Skill cannot override a Tool's execution permissions.
+
+Skill files and instructions must not be treated as a source of administrative authority.
+
+Any executable scripts associated with Skills must use an authorized execution mechanism.
+
+---
+
+# PART D — FILES, FOLDERS AND ARTIFACTS
+
+## 7. Dialogue Workspace and External Folders
+
+Each Dialogue already has its own Workspace. Preserve it as the default working directory.
+
+The Agent must also be able to access external folders that the user explicitly authorizes.
+
+Users must be able to manage these folders entirely through the HTML frontend.
+
+Provide:
+
+- Add Folder.
+- Remove Folder.
+- View Folder.
+- Change Permission.
+- Show accessibility and permission status.
+
+Support two directory permissions:
+
+- **Read Only**
+- **Read & Write**
+
+Default external folders to Read Only.
+
+Folder permissions should be associated with the relevant Dialogue. Do not automatically grant every Dialogue access to all external folders.
+
+Adding, removing, or changing a folder must not require restarting the backend or manually editing configuration files.
+
+The backend must enforce permissions on every operation.
+
+A folder's Read & Write authorization does not automatically remove Tool-level confirmation requirements.
+
+### Nested directories
+
+An Agent may create or modify files directly in subdirectories of an authorized writable external folder.
+
+For example, if a parent directory is authorized, the Agent may choose an appropriate nested location for generated files.
+
+Do not require all generated files to be placed in the Dialogue Workspace.
+
+Prevent path traversal and access outside authorized boundaries, including through Windows junctions, symbolic links, and other indirect paths.
+
+Revoking folder access must prevent subsequent unauthorized operations.
+
+## 8. Versioning External Files
+
+Extend the existing Artifact Version system to include files created or modified directly in writable external folders.
+
+The current file should remain in its actual external location.
+
+Historical versions and associated metadata should be managed by the application's Artifact Store.
+
+A versioned external file should retain its folder identity, relative path, relevant Run, content hashes, and version history.
+
+### Expected behaviour
+
+When an Agent modifies an existing external file:
+
+- Preserve the original contents as a recoverable version where necessary.
+- Record the new version.
+- Associate the change with the relevant Run.
+- Detect conflicting changes made by other programs.
+- Avoid silently overwriting unexpected modifications.
+
+Users must be able to inspect, compare, and restore file versions through the existing Files interface.
+
+Restoring an external version should update the actual external working file, subject to current permissions and conflict checks.
+
+Do not require the user to move the file back into the Dialogue Workspace.
+
+Handle interruptions between external file updates and Artifact metadata updates with a recoverable process.
+
+Do not claim full transaction isolation against unrelated external applications that do not follow the application's locking protocol.
+
+If a user edits a tracked file outside the application, detect the changed state when practical and allow it to be incorporated into version history without inventing an Agent execution record.
+
+---
+
+# PART E — FILE REFERENCES AND LLM CONTEXT
+
+## 9. Separate File Storage from Conversation History
+
+The current implementation may store complete file contents inside historical conversation messages.
+
+This is inefficient and does not fit the Tool-based file access model.
+
+For newly uploaded and generated files, use this separation:
+
+- **Conversation:** messages, descriptions, and file references.
+- **Working Files:** current contents in Dialogue Workspaces or authorized External Folders.
+- **Artifact Store:** immutable historical versions.
+- **Run Records:** execution evidence and original model output.
+- **Context Builder:** information actually sent to the LLM.
+
+When the user uploads a file, save it as a managed file and associate an Artifact reference with the message.
+
+When the LLM generates files, save their contents through the existing file system and Artifact mechanisms. Conversation history should reference them rather than redundantly store their full contents as ordinary message text.
+
+Retain original Run output where needed for audit, replay, and reconstruction.
+
+Preserve the frontend's existing file preview and download experience.
+
+Do not remove ordinary code or text that users intentionally typed into chat messages.
+
+Avoid destructive migration of older conversation records.
+
+## 10. Context Builder
+
+Extend the backend Context Builder to select information relevant to the current LLM operation.
+
+It should:
+
+- Use active conversation context.
+- Resolve file and Artifact references.
+- Identify relevant Skills and Tools.
+- Retrieve file content when necessary.
+- Prefer relevant file sections over entire large files.
+- Distinguish current working files from historical Artifact Versions.
+- Avoid automatically repeating complete file contents on subsequent turns.
+
+The Agent must be able to use authorized Tools to read additional content.
+
+Do not force the Agent to guess file contents from filenames or summaries.
+
+Preserve the existing Info or Prompt Inspection view, and make it show the actual effective LLM request.
+
+Retrieved files and Tool outputs are data, not instructions that can change permissions.
+
+---
+
+# PART F — CAPABILITY MANAGEMENT UI
+
+## 11. Unified Management
+
+Add a web-based **Capabilities** management area for Skills and Tools.
+
+It should support a growing registry without becoming cumbersome.
+
+Provide:
+
+- Search by name and description.
+- Filter by Skill or Tool.
+- Filter by security level.
+- Filter by lifecycle status.
+- Filter by origin.
+- Other useful filters where appropriate.
+- Sorting.
+- Multiple selection.
+- Select all matching current filters.
+- Clear selection.
+
+Clearly show the number of selected items, including selected items hidden by current filters.
+
+### Batch operations
+
+Support appropriate batch actions, including:
+
+- Enable.
+- Disable.
+- Reclassify.
+- Promote.
+- Remove.
+- Export metadata.
+
+Show the affected items and expected changes before execution.
+
+Validate individual eligibility and dependencies.
+
+Batch actions must not bypass security approvals or lifecycle rules.
+
+Do not silently skip or partially change items without reporting the outcome.
+
+### Capability details
+
+Users must be able to inspect:
+
+- Description and purpose.
+- Type and version.
+- Source and supporting files.
+- Risk classification.
+- Required permissions.
+- Dependencies.
+- Design and implementation documentation.
+- Approval history.
+- Usage records.
+- Errors.
+- Available management actions.
+
+Provide dedicated views for pending approvals and probationary capabilities.
+
+Preserve the existing frontend style.
+
+---
+
+# PART G — SECURITY AND APPROVALS
+
+## 12. Security Levels
+
+Use three execution risk levels:
+
+| Level | Execution policy |
+|---|---|
+| **Auto** | Execute automatically within authorized scope |
+| **Confirm** | Require user confirmation for the operation |
+| **Restricted** | Require special approval with detailed review |
+
+Users must be able to inspect and change classifications through the frontend.
+
+The backend must enforce the effective policy.
+
+Consider the capability's own classification, dependencies, requested operation, filesystem permissions, and lifecycle state.
+
+An Auto Skill cannot bypass a Confirm or Restricted Tool.
+
+A user's folder authorization cannot bypass a Tool's risk policy.
+
+Lowering a capability's risk classification requires explicit administrative confirmation.
+
+## 13. Approval Workflow
+
+Provide a persistent approval system.
+
+When approval is required, the frontend must show what the Agent proposes to do and what it will affect.
+
+Users must be able to approve or reject the request.
+
+For Restricted operations, require a detailed application.
+
+Approvals must remain available while the browser is closed and after backend restart.
+
+Bind execution approvals to the reviewed operation, capability version, relevant inputs, code hashes, and permissions.
+
+A changed operation or changed executable source requires a new approval.
+
+The Agent must never approve its own requests or change its own permission records.
+
+Administrative actions must be protected from unauthorized requests.
+
+---
+
+# PART H — CAPABILITY CREATION AND UPGRADES
+
+## 14. Agent-Created Skills and Tools
+
+Provide restricted creation capabilities, such as:
+
+- `create_skill`
+- `create_tool`
+
+These allow the Agent to propose reusable capabilities.
+
+Running the creation workflow requires special authorization.
+
+Separate permission to **prepare a candidate** from permission to **install and activate the candidate**.
+
+A candidate must not become executable merely because the Agent generated its files.
+
+### Required proposal
+
+Every creation proposal must contain:
+
+1. **Purpose:** what the capability does.
+2. **Alternatives:** which existing Skills and Tools were examined, and why they are insufficient.
+3. **Reusability:** what future tasks the capability can serve.
+4. **Design:** inputs, outputs, workflow, dependencies, and failure conditions.
+5. **Implementation Notes:** readable explanations of the implementation and important design choices.
+6. **Complete Source:** all source code, instructions, scripts, and relevant configuration.
+7. **Permissions:** requested filesystem, network, process, and other access.
+8. **Tests:** relevant cases, results, and limitations.
+9. **Risk Assessment:** likely failure modes and a suggested security classification.
+10. **Rollback:** how the capability can be disabled or restored.
+
+The application must be understandable to a human reviewer.
+
+Avoid generic or promotional explanations.
+
+The user must explicitly approve the candidate and assign or confirm its risk classification.
+
+The approval must apply to the exact reviewed version.
+
+## 15. Upgrading Existing Capabilities
+
+The Agent must also be able to propose an improved version of an existing Skill or Tool.
+
+An upgrade follows the same review, authorization, and approval requirements as creation.
+
+Additionally, the proposal must explain:
+
+- What is wrong or missing in the current version.
+- What changes are proposed.
+- How the interface or behaviour changes.
+- Whether existing dependent capabilities remain compatible.
+- What regression tests were performed.
+
+Provide a readable source diff.
+
+When approved, the new version **replaces the old version as the active implementation**.
+
+Preserve the old version for rollback.
+
+Do not overwrite historical version contents in place.
+
+Both newly created capabilities and approved upgrades enter Probation.
+
+---
+
+# PART I — CAPABILITY VERSIONING AND PROBATION
+
+## 16. Capability Versions
+
+Skills and Tools must have versioned source Artifacts.
+
+Users should be able to:
+
+- Inspect version history.
+- View source.
+- Compare versions.
+- Activate an approved version.
+- Restore a previous version.
+- Remove a capability from active use.
+- Permanently delete a selected bad version.
+
+Use the existing Artifact infrastructure where appropriate.
+
+Store source versions and their approval history with sufficient integrity to verify exactly what was approved and executed.
+
+Changing source code requires a new version and appropriate review.
+
+### Restore
+
+Restoring a previous version changes which implementation is active.
+
+Check its integrity, compatibility, permissions, and current approval requirements.
+
+Record the change.
+
+Do not silently substitute a different implementation.
+
+### Permanent deletion
+
+Distinguish ordinary Remove from permanent version deletion.
+
+**Remove** makes the capability unavailable while retaining its history.
+
+**Purge** deletes the selected managed version's actual source package so that it cannot be activated or restored.
+
+Purge requires explicit special confirmation.
+
+Before Purge, explain:
+
+- Which version is affected.
+- Whether it is active or in use.
+- Which capabilities depend on it.
+- What historical reproducibility will be lost.
+- Whether copies remain in Runs, exports, or backups.
+
+Preserve a minimal audit record of deletion without retaining the purged source in the active version store.
+
+Do not claim secure physical erasure unless it can actually be guaranteed.
+
+Do not delete unrelated Run records or Memory evidence as an unintended side effect.
+
+## 17. Probation
+
+Every approved new capability or upgrade enters **Probation**.
+
+Probation is independent of risk classification.
+
+During Probation:
+
+- Usage is recorded.
+- Failures are recorded.
+- Execution requires at least confirmation.
+- Restricted operations remain Restricted.
+- The user can inspect, disable, remove, or reclassify the capability.
+
+Provide a dedicated Probation management view.
+
+Allow the user to **Promote** a capability after reviewing its implementation and actual performance.
+
+Promotion must not automatically reduce its security classification.
+
+A promoted Restricted capability remains Restricted.
+
+## 18. Dynamic Loading
+
+Approved Skills and Tools must become available without restarting the Python backend.
+
+The Registry must support changing active capability versions at runtime.
+
+Keep source versions immutable.
+
+Running Agent tasks should retain enough version information for reproducibility.
+
+Revoking or disabling a capability must prevent subsequent unauthorized execution.
+
+Do not import arbitrary Agent-generated Python code directly into the main FastAPI process.
+
+Use an appropriate controlled execution mechanism for dynamically generated executable Tools.
+
+A user approving a capability does not mean its code is safe to run with unrestricted backend privileges.
+
+If reliable execution isolation is not available, keep executable dynamic capabilities disabled and report the limitation rather than implementing an unsafe shortcut.
+
+---
+
+# PART J — LAST-RESORT PYTHON EXECUTION
+
+## 19. `py_run_code`
+
+Provide a special Restricted Skill named:
+
+**`py_run_code`**
+
+This Skill allows the Agent to propose Python code for a specific, one-time operation.
+
+It is not intended to replace the reusable Tool and Skill system.
+
+It must follow the Capability Resolution Policy.
+
+### Required approval application
+
+Before execution, the Agent must explain:
+
+- What operation is required.
+- Why existing Skills and Tools cannot complete it.
+- Why upgrading existing capabilities is unsuitable.
+- Why creating a reusable Skill or Tool is not justified.
+- What the proposed Python code will do.
+- What inputs it requires.
+- What files and resources it will access or modify.
+- What output it should produce.
+- What risks and side effects it has.
+
+Provide the complete Python source, readable design comments, and implementation comments.
+
+The user must inspect and approve the exact proposed code and permissions.
+
+Approval must be invalidated if the code or execution-relevant inputs change.
+
+### Execution safety
+
+Never execute untrusted generated Python inside the main backend process.
+
+Use a controlled execution environment with enforceable restrictions.
+
+It must prevent unauthorized access to credentials, Registry files, approval records, other Dialogue Workspaces, and unapproved external folders.
+
+Network access should be denied by default.
+
+Apply appropriate time, resource, and process limits.
+
+Record stdout, stderr, exit status, errors, and generated files.
+
+A simple subprocess with a timeout is not sufficient to claim secure isolation.
+
+If secure execution cannot be verified on the existing Windows environment, deliver the proposal and approval interface but leave actual arbitrary-code execution disabled.
+
+Do not automatically register code executed through `py_run_code` as a reusable capability.
+
+---
+
+# PART K — CONTEXT-AWARE EXECUTION SCHEDULING
+
+## 20. Minimize LLM Execution Cost
+
+Large LLM contexts can cause significant prefill delays, especially with local models.
+
+The Agent should plan its work to reduce unnecessary LLM calls and avoid unnecessarily large contexts.
+
+Implement **Context-Aware Execution Scheduling**.
+
+The objective is to improve total task latency and efficiency without sacrificing correctness.
+
+### 20.1 Prefer Focused Calls
+
+When planning a task, prefer:
+
+- Deterministic Tool execution where sufficient.
+- Reuse of previously established conclusions.
+- Small, relevant LLM contexts.
+- Targeted file retrieval.
+- Limited repetition of previously supplied data.
+- Appropriate model selection and reasoning effort.
+
+Do not mechanically split every task into many small calls.
+
+One sufficiently informative larger call can be better than many dependent small calls.
+
+Use judgment based on actual total cost and expected quality.
+
+### 20.2 Dependency-Aware Scheduling
+
+Identify which operations depend on earlier results and which can execute independently.
+
+Independent operations may be reordered to reduce execution cost.
+
+For example, several analyses sharing a common source context may be executed together, even if the original task description listed them in another order.
+
+This is similar to scheduling film production by shared locations and resources instead of filming strictly in story order.
+
+Preserve necessary dependencies and user priorities.
+
+Do not reorder side-effecting actions in ways that change their intended behaviour.
+
+### 20.3 KV-Cache Awareness
+
+Consider KV-cache locality when scheduling LLM requests.
+
+Where practical, arrange compatible independent calls near one another when they share an identical reusable token prefix.
+
+Consider:
+
+- Model identity.
+- Endpoint and inference configuration.
+- Stable system instructions.
+- Selected Tool and Skill definitions.
+- Shared context.
+- Prompt-prefix identity.
+- Cache residency.
+
+**Semantically similar prompts do not necessarily share KV cache.**
+
+A high cache-hit percentage does not necessarily imply low prefill latency.
+
+Do not assume cache reuse across different model instances or incompatible prompts.
+
+Keep common prompt prefixes stable where practical, but never preserve stale permissions or context merely to improve cache reuse.
+
+Do not implement a separate KV-cache system. Use the facilities of the configured LLM server.
+
+Inspect the actual caching capabilities of the installed model server.
+
+### 20.4 Scheduling Priorities
+
+Balance:
+
+1. Correct task dependencies.
+2. User responsiveness.
+3. Total task latency.
+4. Number and size of LLM calls.
+5. Uncached prefill cost.
+6. KV-cache reuse.
+7. Background maintenance work.
+
+Do not delay interactive work indefinitely for caching opportunities.
+
+Keep the scheduling implementation proportionate to the existing application.
+
+### 20.5 Performance Measurements
+
+Record useful metrics where available:
+
+- Number of LLM calls.
+- Input and output tokens.
+- Cached and uncached input tokens.
+- Prefill duration or time to first token.
+- Total call duration.
+- Total Run duration.
+- Relevant context or prefix identity.
+
+Distinguish measured values from estimates.
+
+Provide a practical way to compare ordinary dependency-order execution against the optimized scheduler.
+
+Do not claim success based on cache-hit rate alone.
+
+---
+
+# PART L — AGENT MEMORY
+
+## 21. Memory Design
+
+Introduce a persistent Agent Memory system.
+
+The purpose is to preserve useful conclusions from completed work while reducing the amount of historical context needed for future LLM calls.
+
+**Agent Memory is different from Conversation Compaction.**
+
+The existing chat history remains the user's conversation record.
+
+Agent Memory is a compact knowledge layer derived from completed tasks and historical LLM execution records.
+
+Original Run records must remain available.
+
+Do not delete original historical records as a consequence of memory summarization.
+
+Provide two built-in Skills:
+
+- `memory_summary`
+- `memory_recall`
+
+## 22. `memory_summary`
+
+Use the configured **Thinker LLM** to summarize completed historical Agent and LLM Runs.
+
+Prefer records whose outcomes are already known.
+
+The summary should preserve:
+
+- Established conclusions.
+- Verified findings.
+- Important decisions.
+- Useful implementation knowledge.
+- Successful approaches.
+- Negative findings.
+- Reasons approaches failed.
+- Relevant assumptions and limitations.
+- Unresolved questions that matter.
+- References to supporting historical records.
+
+**Prioritize conclusions over the process used to reach them.**
+
+Compress repetitive searches, intermediate reasoning, unsuccessful attempts, and redundant Tool output once their outcomes are understood.
+
+However, do not erase distinctions that materially affect the conclusion.
+
+### Memory quality
+
+Do not turn an LLM hypothesis into a verified fact simply because it appears in a summary.
+
+Distinguish verified findings, inferences, disputed claims, and unresolved questions.
+
+Preserve relevant conditions, such as the applicable source version.
+
+If later evidence contradicts an earlier conclusion, retain the provenance and mark the earlier conclusion appropriately rather than silently replacing history.
+
+### Summarization strategy
+
+Avoid feeding an enormous Run Archive into one Thinker request unnecessarily.
+
+Use incremental or hierarchical summarization where useful.
+
+Store concise summaries with references to the original Run, steps, Tool results, and Artifact Versions.
+
+Memory summaries should themselves be versioned.
+
+Summarization should be available on demand and may also run automatically after eligible work completes.
+
+Background summarization must have lower priority than interactive user tasks.
+
+Avoid recursively summarizing the summarization process itself.
+
+### Memory scope
+
+Use appropriate Dialogue and Workspace boundaries.
+
+Do not automatically expose one Dialogue's records to another Dialogue without authorization.
+
+Do not allow Memory to bypass file permissions or other security restrictions.
+
+## 23. `memory_recall`
+
+Provide a Skill that lets the Agent retrieve the original evidence behind a Memory summary.
+
+The Skill should support searching historical conclusions and following references to their original records.
+
+The Agent may use it when:
+
+- A summary lacks necessary details.
+- The user asks why a conclusion was reached.
+- The Agent needs to verify the original evidence.
+- The original implementation process matters.
+- Later evidence conflicts with an earlier conclusion.
+
+Prefer progressive retrieval:
+
+1. Find relevant summaries.
+2. Identify their source references.
+3. Retrieve relevant Run steps.
+4. Retrieve original Tool results or file versions when needed.
+5. Return the precise historical evidence.
+
+Do not automatically load an entire historical Run into the LLM context when only a few details are required.
+
+Original Run records must remain intact and retrievable.
+
+If a record is unavailable, report that limitation. Do not fabricate the missing process.
+
+Recall must enforce current access permissions.
+
+## 24. Memory and Context Builder Integration
+
+The Context Builder should use relevant Agent Memory before reopening large historical records.
+
+For a new task, provide concise established conclusions where useful.
+
+Use `memory_recall` only when the underlying details are needed.
+
+Do not inject every Memory summary into every LLM call.
+
+Coordinate Memory updates with the Context-Aware Scheduler.
+
+A shorter context is generally useful, but changes to prompt prefixes can reduce cache reuse. Optimize based on actual task performance rather than a fixed assumption.
+
+### Frontend Memory Management
+
+Provide a lightweight Agent Memory interface.
+
+Users should be able to:
+
+- Browse and search summaries.
+- Inspect conclusions and their status.
+- See supporting references.
+- Open originating Runs.
+- Trigger summarization.
+- Recall historical details.
+- Identify superseded findings.
+
+Reuse the existing Runs and Files views for detailed evidence.
+
+Avoid building an unnecessary separate knowledge-management application.
+
+---
+
+# PART M — PERSISTENCE, RELIABILITY AND SAFETY
+
+## 25. Storage and Recovery
+
+Reuse the current filesystem-based persistence system.
+
+Keep records for:
+
+- Agent execution.
+- Skills and Tools.
+- Capability versions.
+- Security classifications.
+- Approval decisions.
+- Probation and promotion.
+- Folder permissions.
+- External file versions.
+- Memory summaries and provenance.
+
+Use stable identities, integrity checks, and atomic or recoverable updates where appropriate.
+
+Keep sensitive Registry administration files outside ordinary Agent-writable locations.
+
+Agent file Tools must not modify approval records, security policies, or capability source packages directly.
+
+Preserve existing single-instance and Workspace locking behaviour.
+
+Avoid introducing additional services unless necessary.
+
+## 26. Failure Handling
+
+Handle failures explicitly.
+
+An Agent Run may fail, be cancelled, be interrupted, or wait for approval.
+
+A Tool may fail without corrupting the broader application.
+
+A newly approved capability may fail without crashing the Python backend.
+
+A file update may conflict with external edits.
+
+A capability upgrade may need rollback.
+
+Memory summarization may fail without affecting the original Run.
+
+The system should preserve useful partial results and accurate execution records.
+
+Do not silently mark unsuccessful operations as completed.
+
+---
+
+# PART N — TESTING AND ACCEPTANCE
+
+## 27. Testing Approach
+
+Use the existing test framework.
+
+Use deterministic mock LLM behaviour for repeatable Agent, streaming, approval, and recovery tests.
+
+Also test against configured real LLM endpoints where practical.
+
+Test actual backend authorization, not only frontend controls.
+
+### Required end-to-end scenarios
+
+**A. Multi-step Agent Task**
+
+Ask the Agent to inspect the application's Python source, trace a feature across files, and produce a report.
+
+Verify that it selects and chains existing Tools, records its steps, and saves the result.
+
+**B. External Folder Management**
+
+Add an External Folder through the frontend.
+
+Test Read Only and Read & Write access, nested file creation, permission changes, and revocation.
+
+**C. External File Versioning**
+
+Modify an existing file directly in an external subfolder.
+
+Verify original-version capture, new-version publication, comparison, rollback, and conflict detection.
+
+**D. Capability Creation**
+
+Have the Agent identify a missing reusable capability.
+
+Verify that it examines existing alternatives, prepares a complete proposal, receives approval, and installs the new version under Probation.
+
+**E. Capability Upgrade**
+
+Upgrade an existing Tool or Skill.
+
+Verify source diffs, compatibility tests, approval, new active version, Probation, and restoration of an earlier version.
+
+**F. Capability Purge**
+
+Permanently delete a test capability version.
+
+Verify that it is no longer executable or restorable from managed capability storage, while appropriate audit history remains.
+
+**G. Capability Management**
+
+Test filtering, sorting, multiple selection, batch operations, reclassification, promotion, disable, and removal.
+
+Verify that batch operations do not bypass security requirements.
+
+**H. Restricted Python**
+
+Have the Agent propose a one-off Python operation.
+
+Verify the four-level Capability Resolution assessment, complete source review, special approval, and controlled execution if verified safe.
+
+If isolation cannot be verified, demonstrate that execution remains disabled.
+
+**I. Context-Aware Scheduling**
+
+Give the Agent several tasks with shared and independent contexts.
+
+Compare normal execution against context-aware scheduling.
+
+Measure total latency and available token/cache statistics.
+
+Verify correct dependency handling.
+
+**J. Memory Summary and Recall**
+
+Complete a multi-step investigation.
+
+Use Thinker to produce a conclusion-oriented Memory summary.
+
+Start a related task and verify that the Agent uses the summary.
+
+Then ask why the conclusion was reached and verify that `memory_recall` retrieves the correct original Run details.
+
+Confirm that the original records remain intact.
+
+**K. Persistent Approval**
+
+Start an Agent task requiring user approval.
+
+Close the browser and reopen the application.
+
+Approve the pending request and verify that the original Run continues without duplicate execution.
+
+Also verify correct recovery after backend restart.
+
+**L. Regression**
+
+Confirm that the existing Chatbox, model selection, reasoning display, streaming, Undo/Redo, Runs, autosave, Workspaces, file versions, and prompt inspection continue to work.
+
+---
+
+## 28. Definition of Done
+
+Phase 3 is complete when:
+
+- The Agent can execute bounded multi-step tasks.
+- Skills and Tools are registered, discoverable, and usable.
+- The four-level Capability Resolution Policy is implemented.
+- Users can manage External Folders through the frontend.
+- External file writes are associated with Artifact Versions.
+- Users can manage and batch-select Skills and Tools.
+- Risk classifications and approvals are enforced by the backend.
+- The Agent can propose reusable Skills and Tools.
+- The Agent can propose upgrades to existing capabilities.
+- New and upgraded versions require review and approval.
+- Approved capability versions become available without backend restart.
+- New and upgraded versions enter Probation.
+- Users can promote, reclassify, disable, remove, restore, and purge capability versions.
+- `py_run_code` follows the last-resort policy and cannot execute without the required permission and verified isolation.
+- Conversation messages use file references where appropriate.
+- The Context Builder avoids unnecessary full-file duplication.
+- The Agent considers context size, task dependencies, and KV-cache locality when planning LLM calls.
+- Scheduler performance can be measured against a baseline.
+- `memory_summary` uses Thinker to preserve conclusions from completed work.
+- `memory_recall` retrieves original historical evidence.
+- Summarization does not delete the original Run records.
+- Existing application functionality remains operational.
+- Automated tests and required demonstrations pass.
+
+Do not claim completion for untested functionality.
+
+If a security-sensitive execution feature cannot be implemented safely, leave it disabled, document the reason, and complete the other deliverables.
+
+---
+
+## 29. Delivery
+
+Implement the functionality, not just a design document.
+
+Use your judgment to organize development into sensible milestones and to reuse the existing architecture.
+
+You may adjust implementation details where a better approach is justified by the codebase.
+
+Avoid unnecessary dependencies, redundant storage, over-abstraction, and complex infrastructure.
+
+Keep the frontend readable and consistent with the existing application.
+
+Provide:
+
+1. A summary of what was implemented.
+2. Significant design decisions and their rationale.
+3. A description of new or changed APIs and persistent records.
+4. Security and approval behaviour.
+5. Test results and end-to-end demonstration evidence.
+6. Performance benchmark results for context-aware scheduling.
+7. Native Windows setup and execution instructions.
+8. Known limitations and any disabled features.
+9. A brief assessment of readiness for future repository exploration, source modification, and automated research workflows.
+
+**The outcome should be a useful Agent system that can extend its own reusable capabilities under user supervision, manage files safely, use LLM resources efficiently, and accumulate evidence-linked knowledge without losing its execution history.**
